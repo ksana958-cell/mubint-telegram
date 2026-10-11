@@ -1,5 +1,7 @@
 "use client";
 import { apiFetch, storage, telegram, botLink } from "./telegram";
+import { currentSeason, SEASON_EVENT, seasonNames } from "./season";
+import { Leaf, Snowflake, Flower2, Sun } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, CalendarDays, Check, CheckCheck, ClipboardList, BellRing, Dumbbell, Crown, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, CircleHelp, Clock3, Coffee, ExternalLink, GraduationCap, LayoutGrid, List, MapPin, Monitor, RefreshCw, Search, Sparkles, Users, WifiOff, X } from "lucide-react";
@@ -24,6 +26,18 @@ const initialDate = () => { const date = moscowToday(); return new Date(`${date}
 
 function Mark({ small = false }: { small?: boolean }) {
   return <span className={`brand-mark ${small ? "small" : ""}`} aria-hidden="true"><i /><i /><i /><i /></span>;
+}
+
+function SeasonBadge() {
+  const [season, setSeason] = useState(currentSeason);
+  useEffect(() => {
+    const update = () => setSeason(currentSeason());
+    window.addEventListener(SEASON_EVENT, update);
+    update();
+    return () => window.removeEventListener(SEASON_EVENT, update);
+  }, []);
+  const Icon = { winter: Snowflake, spring: Flower2, summer: Sun, autumn: Leaf }[season];
+  return <span className="season-badge" title="Оформление меняется автоматически по сезону" aria-label={`Сезонное оформление: ${seasonNames[season]}`}><Icon size={14} aria-hidden="true" /><span>{seasonNames[season]}</span></span>;
 }
 
 function CalendarArt({ compact = false }: { compact?: boolean }) {
@@ -222,7 +236,7 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
     </aside>
 
     <div className="workspace">
-      <header className="topbar"><div className="top-breadcrumb"><span className="mobile-logo"><Mark small /></span><span>Академия МУБиНТ</span><ChevronRight size={13} /><strong>{choosing ? groupStep === "group" ? "Выбор группы" : "Выбор занятий" : sectionTitle}</strong></div><div className="top-actions"><span className="moscow-time"><Clock3 size={14} />{now || "МСК"}<span>МСК</span></span><a className="icon-button source-top" href={sourceUrl(date)} target="_blank" rel="noreferrer" title="Открыть официальное расписание" aria-label="Открыть официальное расписание"><ExternalLink size={18} /></a><button className="profile-button" onClick={openGroups} aria-label="Выбрать группу"><GraduationCap size={20} /></button></div></header>
+      <header className="topbar"><div className="top-breadcrumb"><span className="mobile-logo"><Mark small /></span><span>Академия МУБиНТ</span><ChevronRight size={13} /><strong>{choosing ? groupStep === "group" ? "Выбор группы" : "Выбор занятий" : sectionTitle}</strong></div><div className="top-actions"><SeasonBadge /><span className="moscow-time"><Clock3 size={14} />{now || "МСК"}<span>МСК</span></span><a className="icon-button source-top" href={sourceUrl(date)} target="_blank" rel="noreferrer" title="Открыть официальное расписание" aria-label="Открыть официальное расписание"><ExternalLink size={18} /></a><button className="profile-button" onClick={openGroups} aria-label="Выбрать группу"><GraduationCap size={20} /></button></div></header>
 
       <main>
         {choosing ? <div className="onboarding appear">

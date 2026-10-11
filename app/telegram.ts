@@ -1,3 +1,5 @@
+import { SEASON_EVENT, themeColors } from './season';
+
 type TelegramApp = {
   initData: string; ready: () => void; expand: () => void; setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void; setBottomBarColor?: (color: string) => void;
@@ -6,6 +8,17 @@ type TelegramApp = {
 declare global { interface Window { Telegram?: { WebApp: TelegramApp } } }
 export const botLink = 'https://t.me/RaspisanieMuBINT_bot';
 export const telegram = () => window.Telegram?.WebApp;
+function applyTelegramColors() {
+  const tg = telegram();
+  if (!tg) return;
+  const colors = themeColors();
+  try {
+    if (tg.isVersionAtLeast?.('6.9')) tg.setHeaderColor?.(colors.header);
+    else if (tg.isVersionAtLeast?.('6.1')) tg.setHeaderColor?.('bg_color');
+    if (tg.isVersionAtLeast?.('6.1')) tg.setBackgroundColor?.(colors.background);
+    if (tg.isVersionAtLeast?.('7.10')) tg.setBottomBarColor?.(colors.bottom);
+  } catch { /* Optional native colors must not interrupt sign-in on older clients. */ }
+}
 export function apiFetch(input: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   const data = telegram()?.initData;
@@ -22,8 +35,8 @@ export async function initializeTelegram() {
   const tg = telegram();
   if (!tg?.initData) return '';
   tg.ready(); tg.expand();
-  if (tg.isVersionAtLeast?.('6.1')) { tg.setHeaderColor?.('#172f40'); tg.setBackgroundColor?.('#f6f8fa'); }
-  if (tg.isVersionAtLeast?.('7.10')) tg.setBottomBarColor?.('#ffffff');
+  applyTelegramColors();
+  window.addEventListener(SEASON_EVENT, applyTelegramColors);
   try {
     const response = await apiFetch('/api/profile', { signal: AbortSignal.timeout(15000) });
     const data = await response.json();
