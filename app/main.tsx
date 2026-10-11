@@ -1,0 +1,8 @@
+import { createRoot } from 'react-dom/client';
+import CampusApp from './campus-app';
+import catalog from '@/seed/groups.json';
+import { initializeTelegram } from './telegram';
+import './globals.css';
+const root = createRoot(document.getElementById('root')!);
+root.render(<div className="telegram-loading" role="status">Открываем кампус…</div>);
+void initializeTelegram().then(error => root.render(<>{error && <div className="telegram-status" role="status">{error}</div>}<CampusApp initialGroups={catalog.groups} /></>));
