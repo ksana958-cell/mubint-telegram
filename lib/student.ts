@@ -1,10 +1,17 @@
 import { addDays, normalizeGroup, type Lesson } from "./schedule";
 import type { ScheduleChange } from "./schedule-diff";
 export type SportChoice = "all" | "pe" | "chess";
+export type Appearance = "system" | "light" | "dark";
+export interface UserSettings {
+  appearance: Appearance; changeAlerts: boolean; morningEnabled: boolean;
+  morningTime: string; schoolDaysOnly: boolean;
+}
+export interface ChecklistItem { id: string; text: string; done: boolean }
 export interface Homework {
   group: string; lessonKey: string; subject: string; lessonDate: string;
   dueDate: string; content: string; done: boolean; updatedAt: string;
   sourceDate: string; autoTarget: boolean; remind: boolean; remindedAt?: string | null;
+  photos?: string[]; checklist?: ChecklistItem[];
 }
 const normalized = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
 export const homeworkKey = (lesson: Pick<Lesson, "date" | "subject">) => JSON.stringify([lesson.date, normalized(lesson.subject)]);

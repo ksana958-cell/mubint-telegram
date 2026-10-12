@@ -88,7 +88,7 @@ export class ScheduleService {
     const match = c => c.groups.some(g => normalizeGroup(g) === normalizeGroup(group));
     const latest = this.store.state('monitor');
     const changes = latest?.changes.filter(match) || [];
-    return { schedule: config.background ? { enabled: true, automationId: 'bothost', firstRun: `${config.anchor}T07:30:00+03:00`, timezone: 'Europe/Moscow' } : null,
+    return { schedule: config.background ? { enabled: true, automationId: 'bothost', firstRun: `${config.anchor}T20:00:00+03:00`, time: '20:00', cadence: 'daily', timezone: 'Europe/Moscow' } : null,
       latest: latest ? { ...latest, changes, totalChanges: changes.length } : null,
       recentChanges: this.store.changes(addDays(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow' }).format(this.now()), -7)).filter(match).slice(0, 100) };
   }

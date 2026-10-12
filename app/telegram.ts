@@ -1,9 +1,14 @@
-import { SEASON_EVENT, themeColors } from './season';
+import { SEASON_EVENT, themeColors, setAppearance } from './season';
 
 type TelegramApp = {
   initData: string; ready: () => void; expand: () => void; setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void; setBottomBarColor?: (color: string) => void;
   isVersionAtLeast?: (version: string) => boolean;
+  colorScheme?: 'light' | 'dark';
+  onEvent?: (event: string, callback: () => void) => void;
+  offEvent?: (event: string, callback: () => void) => void;
+  addToHomeScreen?: () => void;
+  checkHomeScreenStatus?: (callback: (status: 'unsupported' | 'unknown' | 'added' | 'missed') => void) => void;
 };
 declare global { interface Window { Telegram?: { WebApp: TelegramApp } } }
 export const botLink = 'https://t.me/RaspisanieMuBINT_bot';
@@ -42,6 +47,7 @@ export async function initializeTelegram() {
     const data = await response.json();
     if (!response.ok) return data.error || 'Не удалось войти через Telegram. Закрой и снова открой приложение.';
     namespace = data.user.id;
+    if (['system', 'light', 'dark'].includes(data.settings?.appearance)) setAppearance(data.settings.appearance);
     if (data.group) {
       storage.setItem('mubint.group', data.group);
       let choices: Record<string, string> = {};

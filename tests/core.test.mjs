@@ -9,7 +9,7 @@ import { Store } from '../server/store.mjs';
 import { validateInitData } from '../server/auth.mjs';
 import { ScheduleService } from '../server/schedule.mjs';
 import { createApp } from '../server/http.mjs';
-import { queueReminders, deliverOutbox, scheduleSlot, Jobs } from '../server/jobs.mjs';
+import { queueReminders, queueChanges, queueDigests, deliverOutbox, scheduleSlot, Jobs } from '../server/jobs.mjs';
 import { Telegram } from '../server/telegram.mjs';
 import { parseSchedule, forGroup } from '../server/shared/schedule.mjs';
 import { matchesSport } from '../server/shared/student.mjs';
@@ -42,14 +42,15 @@ test('Telegram signature rejects tampering, expiry, future auth and repeated key
   assert.equal(validateInitData(signed() + '&auth_date=1', token, +now), null);
   assert.equal(validateInitData(signed(101, now, { signature: 'also-covered-by-hmac' }), token, +now).id, '101');
 });
-test('07:30 Moscow every other day, with catch-up after downtime', () => {
+test('20:00 Moscow every day, including weekends and catch-up after downtime', () => {
   const a = '2026-10-12';
-  assert.equal(scheduleSlot(new Date('2026-10-12T04:29:59Z'), a), null);
-  assert.equal(scheduleSlot(new Date('2026-10-12T04:30:00Z'), a), a);
-  assert.equal(scheduleSlot(new Date('2026-10-13T20:00:00Z'), a), a);
-  assert.equal(scheduleSlot(new Date('2026-10-14T04:29:59Z'), a), a);
-  assert.equal(scheduleSlot(new Date('2026-10-14T04:30:00Z'), a), '2026-10-14');
-  assert.equal(scheduleSlot(new Date('2026-10-18T05:00:00Z'), a), '2026-10-18');
+  assert.equal(scheduleSlot(new Date('2026-10-12T16:59:59Z'), a), null);
+  assert.equal(scheduleSlot(new Date('2026-10-12T17:00:00Z'), a), a);
+  assert.equal(scheduleSlot(new Date('2026-10-13T16:59:59Z'), a), a);
+  assert.equal(scheduleSlot(new Date('2026-10-13T17:00:00Z'), a), '2026-10-13');
+  assert.equal(scheduleSlot(new Date('2026-10-14T17:00:00Z'), a), '2026-10-14');
+  assert.equal(scheduleSlot(new Date('2026-10-18T17:00:00Z'), a), '2026-10-18');
+  assert.equal(scheduleSlot(new Date('2026-10-19T01:00:00Z'), a), '2026-10-18');
 });
 test('Parser preserves lecture/practice, groups and sport lectures', () => {
   const parsed = parseSchedule(fixture('2026-10-12', row), '2026-10-12');
@@ -156,5 +157,120 @@ test('Recurring check persists its slot and does not rerun on restart', async t 
   const config = { anchor: '2026-10-12' };
   await new Jobs(store, schedule, null, config, () => now).tick();
   await new Jobs(store, schedule, null, config, () => now).tick(); assert.equal(count, 1);
-  await new Jobs(store, schedule, null, config, () => new Date('2026-10-14T04:30:00Z')).tick(); assert.equal(count, 2);
+  await new Jobs(store, schedule, null, config, () => new Date('2026-10-12T17:00:00Z')).tick(); assert.equal(count, 2);
+  await new Jobs(store, schedule, null, config, () => new Date('2026-10-13T16:59:00Z')).tick(); assert.equal(count, 2);
+  await new Jobs(store, schedule, null, config, () => new Date('2026-10-13T17:00:00Z')).tick(); assert.equal(count, 3);
+});
+
+test('Daily rule replaces the old same-day 07:30 job and survives restart', async t => {
+  const { store, schedule } = setup(t); let checks = 0;
+  store.setState('warmup-done', true); store.setState('schedule-job', { slot: '2026-10-12', partial: false });
+  schedule.check = async () => { checks++; return { status: 'completed' }; };
+  const config = { anchor: '2026-10-12' }, evening = new Date('2026-10-12T17:00:00Z');
+  await new Jobs(store, schedule, null, config, () => evening).tick();
+  await new Jobs(store, schedule, null, config, () => evening).tick(); assert.equal(checks, 1);
+  assert.equal(schedule.monitor('26-ИБ131', { ...config, background: true }).schedule.time, '20:00');
+});
+
+test('Change alerts match group and sport, show before/after, dedupe across restart', async t => {
+  const { store } = setup(t); store.startUser({ id: '101' }, '101'); store.preferences('101', '26-ИБ131', 'chess');
+  store.startUser({ id: '102' }, '102'); store.preferences('102', '26-ИБ121', 'all');
+  const a = lesson('2026-10-13'), b = { ...a, room: '402', start: '10:15', end: '11:45' };
+  store.putChange({ kind: 'changed', date: a.date, groups: a.groups, before: a, after: b, detectedAt: now.toISOString() });
+  const pe = lesson('2026-10-13', { subject: 'Физическая культура', kind: 'practice', type: 'Практические занятия' });
+  store.putChange({ kind: 'added', date: pe.date, groups: pe.groups, after: pe, detectedAt: now.toISOString() });
+  queueChanges(store, now); queueChanges(store, now);
+  const outbox = store.db.prepare('SELECT * FROM outbox').all(); assert.equal(outbox.length, 1); assert.equal(outbox[0].user_id, '101');
+  const text = JSON.parse(outbox[0].body).text; assert.match(text, /301 → 402/); assert.match(text, /08:30–10:00 → 10:15–11:45/); assert.doesNotMatch(text, /Физическая культура/);
+  let sent = 0; const tg = { call: async () => { sent++; }, keyboard: (section, date) => { assert.equal(section, 'today'); assert.equal(date, '2026-10-13'); } };
+  await deliverOutbox(store, tg, now); await deliverOutbox(store, tg, now); assert.equal(sent, 1);
+});
+
+test('Disabling change alerts and changing group cancel pending notifications', async t => {
+  const { store } = setup(t); store.startUser({ id: '101' }, '101'); store.preferences('101', '26-ИБ131', 'all');
+  const a = lesson('2026-10-13');
+  store.putChange({ detectedAt: now.toISOString(), kind: 'added', date: a.date, groups: a.groups, after: a }); queueChanges(store, now);
+  store.updateSettings('101', { changeAlerts: false });
+  let sent = 0; const tg = { call: async () => { sent++; }, keyboard: () => undefined };
+  await deliverOutbox(store, tg, now); assert.equal(sent, 0);
+  store.putChange({ detectedAt: now.toISOString(), kind: 'changed', date: a.date, groups: a.groups, before: a, after: { ...a, room: '500' } });
+  store.updateSettings('101', { changeAlerts: true }); queueChanges(store, now); assert.equal(store.db.prepare("SELECT count(*) n FROM outbox WHERE status='pending'").get().n, 0);
+  store.putChange({ detectedAt: now.toISOString(), kind: 'removed', date: a.date, groups: a.groups, before: a }); queueChanges(store, now);
+  store.preferences('101', '26-ИБ121', 'all'); await deliverOutbox(store, tg, now); assert.equal(sent, 0);
+});
+
+test('Morning digest respects chosen time, sport, due homework and once-per-day delivery', async t => {
+  const { store, schedule } = setup(t); store.startUser({ id: '101' }, '101'); store.preferences('101', '26-ИБ131', 'chess');
+  store.updateSettings('101', { morningEnabled: true, morningTime: '08:10' });
+  let fetches = 0; schedule.getDay = async date => { fetches++; return day(date, [lesson(date), lesson(date, { start: '10:15', end: '11:45', subject: 'Физическая культура', kind: 'practice', type: 'Практические занятия' }), lesson(date, { start: '12:00', end: '13:30', subject: 'Шахматы', kind: 'practice', type: 'Практические занятия' })]); };
+  store.putRecord('101', record({ dueDate: '2026-10-12', lessonDate: '2026-10-12', content: '', photos: ['test-photo'], checklist: [{ id:'a', text:'Решить задачу', done:false }] }));
+  await queueDigests(store, schedule, new Date('2026-10-12T05:09:00Z')); assert.equal(fetches, 0);
+  const morning = new Date('2026-10-12T05:10:00Z'); await queueDigests(store, schedule, morning); await queueDigests(store, schedule, morning);
+  assert.equal(fetches, 1); const row = store.db.prepare('SELECT body FROM outbox').get(), body = JSON.parse(row.body);
+  assert.match(body.text, /Занятий: 2/); assert.match(body.text, /Начало: 08:30 · Конец: 13:30/); assert.match(body.text, /Аудитория: 301/); assert.match(body.text, /Фото задания: 1/); assert.match(body.text, /Решить задачу/);
+  let sent = 0; await deliverOutbox(store, { call: async () => { sent++; }, keyboard: () => undefined }, morning);
+  await queueDigests(store, schedule, new Date('2026-10-12T05:11:00Z')); assert.equal(sent, 1); assert.equal(store.db.prepare("SELECT status FROM outbox").get().status, 'sent');
+});
+
+test('Digest never invents a free day on source failure; no stale evening summary', async t => {
+  const { store, schedule } = setup(t); store.startUser({ id: '101' }, '101'); store.preferences('101','26-ИБ131','all'); store.updateSettings('101',{morningEnabled:true,schoolDaysOnly:false});
+  schedule.getDay = async date => ({ ...day(date, []), status:'unavailable' });
+  await queueDigests(store,schedule,now); assert.equal(store.state('digest:101'), null);
+  schedule.getDay = async date => ({ ...day(date, []), status:'cached' });
+  await queueDigests(store,schedule,new Date(+now+60000)); assert.equal(store.state('digest:101'), null);
+  schedule.getDay = async date => day(date,[]);
+  await queueDigests(store,schedule,new Date(+now+120000)); assert.equal(store.state('digest:101'), '2026-10-12');
+  let sent=0; await deliverOutbox(store,{call:async()=>{sent++;},keyboard:()=>undefined},new Date('2026-10-12T17:00:00Z')); assert.equal(sent,0);
+});
+
+test('HTTP photos are private; photo-only homework, checklist, delete and settings work end to end', async t => {
+  const { store, schedule } = setup(t); store.putDay(day('2026-10-15',[lesson('2026-10-15')]));
+  const server = createApp({config:{token,appUrl:'https://campus.example',background:true},store,schedule,now:()=>now});
+  server.listen(0,'127.0.0.1'); await once(server,'listening'); t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);}));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const request = (path,id=101,options={}) => fetch(base+path,{...options,headers:{...(id?{Authorization:`tma ${signed(id)}`}:{ }),...options.headers}});
+  const json = (body,method='PUT') => ({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV9sAAAAASUVORK5CYII=','base64');
+  assert.equal((await request('/api/photos',null,{method:'POST',headers:{'Content-Type':'image/png'},body:png})).status,401);
+  assert.equal((await request('/api/photos',101,{method:'POST',headers:{'Content-Type':'image/png'},body:'<script>bad</script>'})).status,400);
+  assert.equal((await request('/api/photos',101,{method:'POST',headers:{'Content-Type':'image/svg+xml'},body:'<svg/>'})).status,415);
+  assert.equal((await request('/api/photos',101,{method:'POST',headers:{'Content-Type':'image/png'},body:Buffer.alloc(4*1024*1024+1)})).status,413);
+  const upload = await request('/api/photos',101,{method:'POST',headers:{'Content-Type':'image/png'},body:png}); assert.equal(upload.status,201); const {id} = await upload.json();
+  const own = await request(`/api/photos/${id}`); assert.equal(own.status,200); assert.equal(own.headers.get('cache-control'),'private, no-store'); assert.equal(Buffer.compare(Buffer.from(await own.arrayBuffer()),png),0);
+  assert.equal((await request(`/api/photos/${id}`,102)).status,404);
+  assert.equal((await request(`/api/photos/${id}`,102,{method:'DELETE'})).status,404);
+  const task = record({content:'',photos:[id],checklist:[],autoTarget:true});
+  assert.equal((await request('/api/homework',102,json(task))).status,400);
+  const saved = await request('/api/homework',101,json(task)); assert.equal(saved.status,200); assert.equal((await saved.json()).record.photos[0],id);
+  assert.equal((await request(`/api/photos/${id}`,101,{method:'DELETE'})).status,409);
+  assert.equal((await request('/api/homework',101,json({...task,checklist:[{id:'a',text:'Пункт 1',done:false},{id:'a',text:'Дубль',done:false}]}))).status,400);
+  let good = await request('/api/homework',101,json({...task,checklist:[{id:'a',text:'Пункт 1',done:false}]})); assert.equal(good.status,200);
+  const version = store.record('101',task.group,task.lessonKey).version;
+  good = await request('/api/homework',101,json({...task,checklist:[{id:'a',text:'Пункт 1',done:true}]})); assert.equal(good.status,200); assert.equal(store.record('101',task.group,task.lessonKey).version,version);
+  // Older clients that don't know photos/checklist must not drop either field.
+  good = await request('/api/homework',101,json(record({done:true,content:'Текст',autoTarget:true}))); assert.equal(good.status,200); const preserved = (await good.json()).record; assert.deepEqual(preserved.photos,[id]); assert.equal(preserved.checklist[0].done,true);
+  assert.equal((await request('/api/settings',101,json({morningTime:'24:00'}))).status,400);
+  assert.equal((await request('/api/settings',101,json({morningTime:'08:05',morningEnabled:true,appearance:'dark'}))).status,200);
+  assert.equal((await (await request('/api/settings')).json()).settings.appearance,'dark');
+  assert.equal((await (await request('/api/settings',102)).json()).settings.appearance,'system');
+  const subjects = await (await request('/api/subjects?group=26-ИБ131')).json(); assert.equal(subjects.lessons[0].subject,'Экономика');
+  assert.equal((await request('/api/homework',101,json(task,'DELETE'))).status,200); assert.equal((await request(`/api/photos/${id}`)).status,404);
+});
+
+test('Additive database upgrade preserves legacy tasks, schedules and delivery history', () => {
+  const dir=mkdtempSync(join(tmpdir(),'campus-upgrade-')),file=join(dir,'campus.sqlite');
+  try {
+    let store=new Store(file); store.startUser({id:'101'},'101');store.putRecord('101',record());store.putDay(day('2026-10-15',[lesson('2026-10-15')]));store.enqueue('old','101',{type:'homework'});
+    store.putChange({ detectedAt: now.toISOString(),kind:'added',date:'2026-10-15',groups:['26-ИБ131'],after:lesson('2026-10-15')});
+    store.db.exec('DROP TABLE settings; DROP TABLE photos;'); store.close();
+    store=new Store(file);assert.equal(store.record('101',record().group,record().lessonKey).content,'Задачи 1–5');assert.equal(store.day('2026-10-15').lessons.length,1);assert.equal(store.db.prepare('SELECT count(*) n FROM outbox').get().n,1);assert.equal(store.settings('101').morningEnabled,false);assert.equal(store.changeCursor('101'),store.latestChangeId());store.close();
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('Unattached uploads expire, attached photos survive cleanup and restart', () => {
+  const dir=mkdtempSync(join(tmpdir(),'campus-photo-')),file=join(dir,'campus.sqlite');
+  try {
+    let store=new Store(file);const old='2026-10-10T00:00:00Z';store.putPhoto('101','kept','image/png',Buffer.from('fake test bytes'),old);store.putPhoto('101','orphan','image/png',Buffer.from('test bytes'),old);store.putRecord('101',record({photos:['kept']}));store.close();
+    store=new Store(file);store.cleanPhotos(now);assert.ok(store.photo('101','kept'));assert.equal(store.photo('101','orphan'),undefined);assert.equal(store.photo('102','kept'),undefined);store.close();
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });

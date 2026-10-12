@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { normalizeGroup } from "@/lib/schedule";
 import type { Homework } from "@/lib/student";
 
-export type HomeworkDraft = Pick<Homework, "subject" | "sourceDate" | "lessonDate" | "dueDate" | "content" | "done" | "autoTarget" | "remind">;
+export type HomeworkDraft = Pick<Homework, "subject" | "sourceDate" | "lessonDate" | "dueDate" | "content" | "done" | "autoTarget" | "remind" | "photos" | "checklist">;
 type Identity = Pick<Homework, "subject" | "sourceDate">;
 export type HomeworkStore = ReturnType<typeof useHomework>;
 

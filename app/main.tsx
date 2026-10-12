@@ -5,6 +5,7 @@ import { initializeTelegram } from './telegram';
 import { startSeasonTheme } from './season';
 import './globals.css';
 import './seasons.css';
+import './enhancements.css';
 startSeasonTheme();
 const root = createRoot(document.getElementById('root')!);
 root.render(<div className="telegram-loading" role="status">Открываем кампус…</div>);

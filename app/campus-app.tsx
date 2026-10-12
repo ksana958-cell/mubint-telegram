@@ -5,13 +5,18 @@ import { Leaf, Snowflake, Flower2, Sun } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, CalendarDays, Check, CheckCheck, ClipboardList, BellRing, Dumbbell, Crown, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, CircleHelp, Clock3, Coffee, ExternalLink, GraduationCap, LayoutGrid, List, MapPin, Monitor, RefreshCw, Search, Sparkles, Users, WifiOff, X } from "lucide-react";
-import { addDays, monday, moscowToday, normalizeGroup, sourceUrl, type Lesson, type LessonKind, type ScheduleDay } from "@/lib/schedule";
+import { addDays, monday, moscowToday, normalizeGroup, sourceUrl, validDate, type Lesson, type LessonKind, type ScheduleDay } from "@/lib/schedule";
 
 import type { MonitorStatus, ScheduleChange } from "@/lib/schedule-diff";
 import { changedFields, matchesSport, withChanges, type SportChoice } from "@/lib/student";
 import { useHomework } from "./use-homework";
 import { HomeworkBoard, LessonDialog } from "./homework";
-type Section = "today" | "calendar" | "homework" | "changes";
+import { LiveLesson } from "./live-lesson";
+import { SubjectsPage } from "./subjects";
+import { SettingsPage } from "./settings";
+import { ShareSchedule } from "./share-schedule";
+import { Settings2, Share2, MoreHorizontal } from "lucide-react";
+type Section = "today" | "calendar" | "homework" | "changes" | "subjects" | "settings";
 const sports: Array<[SportChoice, string]> = [["all", "Все варианты"], ["pe", "Физкультура"], ["chess", "Шахматы"]];
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -57,6 +62,7 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
   const [selectedGroup, setSelectedGroup] = useState("");
   const [groupStep, setGroupStep] = useState<"group" | "sport">("group");
   const [sportDraft, setSportDraft] = useState<SportChoice | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const [openedLesson, setOpenedLesson] = useState<Lesson | null>(null);
   const [groups, setGroups] = useState(initialGroups);
   const [groupQuery, setGroupQuery] = useState("");
@@ -100,7 +106,9 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
         if (["all", "pe", "chess"].includes(choice)) { setSportDraft(choice); setChoosing(false); }
         else { setGroupStep("sport"); setChoosing(true); }
       }
-      if (new URLSearchParams(window.location.search).get("section") === "homework") setSection("homework");
+      const params = new URLSearchParams(window.location.search), target = params.get("section"), targetDate = params.get("date");
+      if (target && ["homework", "today", "changes", "subjects", "settings"].includes(target)) setSection(target as Section);
+      if (targetDate && validDate(targetDate)) setDate(targetDate);
     } catch { /* The app remains usable when browser storage is disabled. */ }
     const tick = setInterval(() => setNow(timeMsk()), 30000);
     const controller = new AbortController();
@@ -217,7 +225,7 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
   const changes = (monitor?.recentChanges || monitor?.latest?.changes || []).filter(changeVisible);
   const filteredMonitor = monitor ? { ...monitor, recentChanges: changes, latest: monitor.latest ? { ...monitor.latest, changes: monitor.latest.changes.filter(changeVisible), totalChanges: monitor.latest.changes.filter(changeVisible).length } : null } : null;
   const scheduleVisible = section === "today" || section === "calendar";
-  const sectionTitle = section === "homework" ? "Мои задания" : section === "changes" ? "Изменения" : "Моё расписание";
+  const sectionTitle = section === "homework" ? "Мои задания" : section === "changes" ? "Изменения" : section === "subjects" ? "Мои предметы" : section === "settings" ? "Настройки" : "Моё расписание";
   const tasksCount = homework.records.filter(record => !record.done).length;
 
   return <div className="app-shell">
@@ -228,15 +236,17 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
       <nav aria-label="Основная навигация">
         <button className={`nav-item ${!choosing && scheduleVisible ? "active" : ""}`} onClick={() => navigate("today")}><CalendarDays size={19} />Моё расписание{!choosing && scheduleVisible && <i />}</button>
         <button className={`nav-item ${!choosing && section === "homework" ? "active" : ""}`} onClick={() => navigate("homework")}><ClipboardList size={19} />Мои задания{tasksCount > 0 && <span className="nav-count">{tasksCount}</span>}</button>
+        <button className={`nav-item ${!choosing && section === "subjects" ? "active" : ""}`} onClick={() => navigate("subjects")}><BookOpen size={19} />Мои предметы</button>
         <button className={`nav-item ${!choosing && section === "changes" ? "active" : ""}`} onClick={() => navigate("changes")}><BellRing size={19} />Изменения{!choosing && section === "changes" && <i />}</button>
         <button className={`nav-item ${choosing ? "active" : ""}`} onClick={openGroups}><Users size={19} />Моя группа{choosing && <i />}</button>
+        <button className={`nav-item ${!choosing && section === "settings" ? "active" : ""}`} onClick={() => navigate("settings")}><Settings2 size={19} />Настройки</button>
       </nav>
       {group && <button className="sidebar-group" onClick={openGroups}><span className="group-avatar">{group.slice(0, 2)}</span><span><small>ТВОЯ ГРУППА</small><strong>{group}</strong></span><ChevronDown size={15} /></button>}
       <div className="sidebar-bottom"><div className="sidebar-note"><span className="tiny-orbit">✳</span><p>Больше времени<br /><strong>на студенческую жизнь.</strong></p></div><a href="https://mubint.ru/" target="_blank" rel="noreferrer">Сайт академии <ArrowUpRight size={16} /></a><div className="sidebar-footer"><span>КАМПУС © {today.slice(0, 4)}</span><span>Ярославль</span></div></div>
     </aside>
 
     <div className="workspace">
-      <header className="topbar"><div className="top-breadcrumb"><span className="mobile-logo"><Mark small /></span><span>Академия МУБиНТ</span><ChevronRight size={13} /><strong>{choosing ? groupStep === "group" ? "Выбор группы" : "Выбор занятий" : sectionTitle}</strong></div><div className="top-actions"><SeasonBadge /><span className="moscow-time"><Clock3 size={14} />{now || "МСК"}<span>МСК</span></span><a className="icon-button source-top" href={sourceUrl(date)} target="_blank" rel="noreferrer" title="Открыть официальное расписание" aria-label="Открыть официальное расписание"><ExternalLink size={18} /></a><button className="profile-button" onClick={openGroups} aria-label="Выбрать группу"><GraduationCap size={20} /></button></div></header>
+      <header className="topbar"><div className="top-breadcrumb"><span className="mobile-logo"><Mark small /></span><span>Академия МУБиНТ</span><ChevronRight size={13} /><strong>{choosing ? groupStep === "group" ? "Выбор группы" : "Выбор занятий" : sectionTitle}</strong></div><div className="top-actions"><SeasonBadge />{group && <button className="icon-button" onClick={() => navigate("settings")} aria-label="Настройки приложения"><Settings2 size={19} /></button>}<span className="moscow-time"><Clock3 size={14} />{now || "МСК"}<span>МСК</span></span><a className="icon-button source-top" href={sourceUrl(date)} target="_blank" rel="noreferrer" title="Открыть официальное расписание" aria-label="Открыть официальное расписание"><ExternalLink size={18} /></a><button className="profile-button" onClick={openGroups} aria-label="Выбрать группу"><GraduationCap size={20} /></button></div></header>
 
       <main>
         {choosing ? <div className="onboarding appear">
@@ -258,12 +268,15 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
             <div className="welcome-side"><section className="welcome-card"><div className="welcome-tag"><Sparkles size={14} /> УЧЁБА В СВОЁМ РИТМЕ</div><h2>Меньше хаоса.<br />Больше планов.</h2><p>От первой лекции<br />до последней практики.</p><CalendarArt /><div className="welcome-foot"><span>Твоя группа. Твои пары.</span><span className="round-arrow"><ArrowUpRight size={22} /></span></div></section><div className="feature-row"><div><span className="feature-icon blue"><BookOpen size={19} /></span><strong>Всё о паре</strong><p>Тип, время и аудитория</p></div><div><span className="feature-icon green"><RefreshCw size={18} /></span><strong>Из источника</strong><p>Данные с сайта вуза</p></div></div></div>
           </div><p className="bottom-note"><CircleHelp size={14} /> Список собран из опубликованного расписания. Не нашли группу? Введите её точный код.</p>
         </div> : <div className="dashboard appear">
-          <div className="dashboard-heading"><div><div className="page-eyebrow">УЧЁБА ПОД КОНТРОЛЕМ</div><h1>{sectionTitle}<span className="heading-dot">.</span></h1><p>{section === "homework" ? "Личные задания, сроки и готовые дела." : section === "changes" ? "Что поменялось в расписании твоей группы." : "Всё, что нужно знать о твоём учебном дне."}</p></div><button className="group-switch" onClick={openGroups}><span className="feature-icon green"><Users size={18} /></span><span><small>Группа</small><strong>{group}</strong></span><ChevronDown size={17} /></button></div>
+          <div className="dashboard-heading"><div><div className="page-eyebrow">УЧЁБА ПОД КОНТРОЛЕМ</div><h1>{sectionTitle}<span className="heading-dot">.</span></h1><p>{section === "homework" ? "Личные задания, сроки и готовые дела." : section === "changes" ? "Что поменялось в расписании твоей группы." : section === "subjects" ? "Вся учёба — по предметам." : section === "settings" ? "Оформление, сообщения и быстрый запуск." : "Всё, что нужно знать о твоём учебном дне."}</p></div><button className="group-switch" onClick={openGroups}><span className="feature-icon green"><Users size={18} /></span><span><small>Группа</small><strong>{group}</strong></span><ChevronDown size={17} /></button></div>
 
-          <section className="day-banner" hidden={!scheduleVisible}><div className="banner-copy"><div className="banner-eyebrow"><span /> {date === today ? "ТВОЙ ДЕНЬ СЕГОДНЯ" : cap(fmt(date, { weekday: "long", day: "numeric", month: "long" })).toUpperCase()}</div><h2>{!selectedDay ? "Настраиваемся на учёбу" : selectedDay.status === "unavailable" ? "Проверим расписание?" : !activeLessons.length ? "Время для своих планов" : ongoing ? "Сейчас идёт пара" : nextLesson ? "Твой день — по плану" : "Ещё один день в копилку"}<span>✳</span></h2><p>{!selectedDay ? "Загружаем расписание твоей группы с сайта академии." : selectedDay.status === "unavailable" ? "Источник временно недоступен. Попробуй обновить данные." : !activeLessons.length ? sportChoice === "all" ? "На эту дату в источнике нет занятий для твоей группы." : "На эту дату нет занятий с учётом твоего выбора." : nextLesson ? `${ongoing ? "Сейчас" : "Ближайшая пара"}: ${nextLesson.subject}` : `${plural(activeLessons.length)} в расписании на этот день.`}</p>{nextLesson && <div className="banner-details"><span><Clock3 size={13} />{nextLesson.start}–{nextLesson.end}</span><span>{nextLesson.online ? <Monitor size={13} /> : <MapPin size={13} />}{nextLesson.room || "Не указано"}</span><span className="banner-type">{nextLesson.type}</span></div>}</div><CalendarArt compact /></section>
+          {scheduleVisible && <div className="dashboard-shortcuts"><button className="text-button" onClick={() => navigate("subjects")}><BookOpen size={16} />Мои предметы</button><button className="text-button" onClick={() => setShareOpen(true)}><Share2 size={16} />Поделиться расписанием</button></div>}
+          <section className="day-banner" hidden={!scheduleVisible}><div className="banner-copy"><div className="banner-eyebrow"><span /> {date === today ? "ТВОЙ ДЕНЬ СЕГОДНЯ" : cap(fmt(date, { weekday: "long", day: "numeric", month: "long" })).toUpperCase()}</div><h2>{!selectedDay ? "Настраиваемся на учёбу" : selectedDay.status === "unavailable" ? "Проверим расписание?" : !activeLessons.length ? "Время для своих планов" : ongoing ? "Сейчас идёт пара" : nextLesson ? "Твой день — по плану" : "Ещё один день в копилку"}<span>✳</span></h2><p>{!selectedDay ? "Загружаем расписание твоей группы с сайта академии." : selectedDay.status === "unavailable" ? "Источник временно недоступен. Попробуй обновить данные." : !activeLessons.length ? sportChoice === "all" ? "На эту дату в источнике нет занятий для твоей группы." : "На эту дату нет занятий с учётом твоего выбора." : nextLesson ? `${ongoing ? "Сейчас" : "Ближайшая пара"}: ${nextLesson.subject}` : `${plural(activeLessons.length)} в расписании на этот день.`}</p>{nextLesson && <div className="banner-details"><span><Clock3 size={13} />{nextLesson.start}–{nextLesson.end}</span><span>{nextLesson.online ? <Monitor size={13} /> : <MapPin size={13} />}{nextLesson.room || "Не указано"}</span><span className="banner-type">{nextLesson.type}</span></div>}<LiveLesson lessons={activeLessons} date={date} today={today} now={now} /></div><CalendarArt compact /></section>
 
           {notice && <div className="notice">{notice}<button onClick={() => setNotice("")} aria-label="Закрыть уведомление"><X size={15} /></button></div>}
-          <div hidden={section !== "homework"}><HomeworkBoard key={group} store={homework} today={today} onOpenDay={openDay} /></div>
+          {section === "homework" && <HomeworkBoard key={group} store={homework} today={today} onOpenDay={openDay} />}
+          {section === "subjects" && group && <SubjectsPage key={group} group={group} store={homework} days={days} today={today} sport={sportChoice} onOpenLesson={setOpenedLesson} onHomework={() => navigate("homework")} />}
+          {section === "settings" && <><div className="settings-shortcuts"><button className="secondary-button" onClick={() => navigate("subjects")}><BookOpen size={18} />Предметы</button><button className="secondary-button" onClick={() => { openGroups(); scrollTo(); }}><Users size={18} />Моя группа</button></div><SettingsPage /></>}
           <div className="changes-page" hidden={section !== "changes"}>
             {monitor ? <MonitorPanel monitor={filteredMonitor} full /> : <div className="homework-access" role="status">{monitorError ? <>История временно недоступна.<button className="text-button" onClick={() => setRefreshToken(n => n + 1)}><RefreshCw size={14} /> Повторить</button></> : "Загружаем историю проверок…"}</div>}
           </div>
@@ -298,19 +311,20 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
             </section>
 
             <section className="week-summary"><div className="section-title"><h3>Эта неделя</h3><span>{allWeekLoaded ? "7 / 7" : `${week.filter(d => days[d] && days[d].status !== "unavailable").length} / 7`}</span></div><div className="week-count"><strong>{weekLessons.length || (allWeekLoaded ? "0" : "—")}</strong><span>{allWeekLoaded ? "занятий\nв расписании" : "занятий\nзагружено"}</span><span className="summary-icon"><BookOpen size={22} /></span></div><div className="summary-bar">{(["lecture", "practice", "other", "exam"] as LessonKind[]).map(kind => <i key={kind} className={kind} style={{ flex: weekLessons.filter(l => l.kind === kind).length || 0.001 }} />)}</div><div className="summary-types">{(["lecture", "practice", "other", "exam"] as LessonKind[]).filter(k => k !== "exam" || weekLessons.some(l => l.kind === k)).map(kind => <div key={kind}><span><i className={kind} />{labels[kind]}</span><strong>{weekLessons.filter(l => l.kind === kind).length}</strong></div>)}</div>{!allWeekLoaded && <p className="partial-note">Итоги появятся после загрузки всех дней.</p>}{allWeekLoaded && week.some(d => days[d]?.status !== "live") && <p className="partial-note">Часть дней показана из сохранённой копии.</p>}</section>
-            <section className="source-card"><div className="source-card-icon"><GraduationCap size={21} /><span /></div><h3>Прямо из академии</h3><p>Расписание с lk.mubint.ru.<br />Обновляем при открытии.<br />Историю изменений сохраняем<br />после фоновой проверки.</p><a href={sourceUrl(date)} target="_blank" rel="noreferrer">Официальный источник <ArrowUpRight size={15} /></a></section>
+            <section className="source-card"><div className="source-card-icon"><GraduationCap size={21} /><span /></div><h3>Прямо из академии</h3><p>Расписание с lk.mubint.ru.<br />Обновляем при открытии.<br />Историю изменений сохраняем<br />каждый день в 20:00 МСК.</p><a href={sourceUrl(date)} target="_blank" rel="noreferrer">Официальный источник <ArrowUpRight size={15} /></a></section>
           </aside></div>
           <footer className="app-footer"><span>МУБиНТ · Международная академия бизнеса и новых технологий</span><span>Хорошей учёбы <Sparkles size={12} /></span></footer>
         </div>}
       </main>
     </div>
+    {shareOpen && group && <ShareSchedule group={group} date={date} week={week} days={days} sport={sportChoice} homework={homework.records} view={view} onClose={() => setShareOpen(false)} />}
     {openedLesson && group && <LessonDialog lesson={openedLesson} group={group} store={homework} onClose={() => setOpenedLesson(null)} />}
     {group && <nav className="mobile-bottom-nav" aria-label="Мобильная навигация">
       <button className={!choosing && section === "today" ? "active" : ""} aria-current={!choosing && section === "today" ? "page" : undefined} onClick={() => navigate("today")}><Clock3 size={20} /><span>Сегодня</span></button>
       <button className={!choosing && section === "calendar" ? "active" : ""} aria-current={!choosing && section === "calendar" ? "page" : undefined} onClick={() => navigate("calendar")}><CalendarDays size={20} /><span>Календарь</span></button>
       <button className={!choosing && section === "homework" ? "active" : ""} aria-current={!choosing && section === "homework" ? "page" : undefined} onClick={() => navigate("homework")}><span className="mobile-nav-icon"><ClipboardList size={20} />{tasksCount > 0 && <i>{tasksCount > 99 ? "99+" : tasksCount}</i>}</span><span>Задания</span></button>
       <button className={!choosing && section === "changes" ? "active" : ""} aria-current={!choosing && section === "changes" ? "page" : undefined} onClick={() => navigate("changes")}><BellRing size={20} /><span>Изменения</span></button>
-      <button className={choosing ? "active" : ""} aria-current={choosing ? "page" : undefined} onClick={() => { openGroups(); scrollTo(); }}><Users size={20} /><span>Группа</span></button>
+      <button className={!choosing && ["settings", "subjects"].includes(section) ? "active" : ""} aria-current={!choosing && ["settings", "subjects"].includes(section) ? "page" : undefined} onClick={() => navigate("settings")}><MoreHorizontal size={20} /><span>Ещё</span></button>
     </nav>}
   </div>;
 }
@@ -337,7 +351,7 @@ function MonitorPanel({ monitor, full = false }: { monitor: MonitorStatus | null
   const history = monitor.recentChanges || latest?.changes || [];
   const count = full ? 100 : 10;
   const summary = !latest ? "Первой проверки пока нет" : latest.status === "running" ? "Проверка выполняется" : latest.status === "partial" ? `Проверено ${latest.checkedDays} из 14 дней` : latest.baselineDays === 14 ? "Исходное расписание сохранено" : latest.totalChanges ? `Найдено изменений: ${latest.totalChanges}` : "Изменений для твоей группы нет";
-  return <details open={full || undefined} className={`monitor-panel ${full ? "full-history" : ""} ${latest?.totalChanges ? "has-changes" : ""}`}><summary><span className="monitor-symbol"><RefreshCw size={16} /></span><span><strong>{summary}</strong><small>{scheduled ? "Каждые 2 дня · 07:30 МСК" : "История проверок"}{latest && ` · ${readableUpdated(latest.checkedAt)}`}</small></span><ChevronDown size={16} /></summary><div className="monitor-details"><p>{scheduled ? "Проверка работает, даже когда приложение закрыто. " : ""}Сравниваем расписание всех групп на ближайшие 14 дней. Здесь показаны изменения выбранной группы.</p>{latest?.baselineDays === 14 && <p>Это первая проверка: сохранена версия для сравнения при следующих запусках.</p>}{!!latest?.failedDates.length && <p className="monitor-failure">Источник не ответил для дат: {latest.failedDates.map(d => fmt(d, { day: "numeric", month: "short" })).join(", ")}. Сохранённые данные этих дней не менялись.</p>}{history.slice(0, count).map((change, i) => <div className={`change-item ${change.kind}`} key={i}><span className="change-label">{change.kind === "added" ? "Добавлено" : change.kind === "removed" ? "Убрано из расписания" : "Изменено"}</span><span className="change-date">{fmt(change.date, { day: "numeric", month: "short" })}</span><strong>{(change.after || change.before)?.subject}</strong><p>{changeDescription(change)}</p>{change.detectedAt && <small>Обнаружено {readableUpdated(change.detectedAt)}</small>}</div>)}{!history.length && <div className="history-empty"><CheckCheck size={24} /><strong>Зафиксированных изменений пока нет</strong><p>Когда появится перенос, замена или отмена, покажем их здесь и в карточке пары.</p></div>}{history.length > count && <p>Показаны последние {count} изменений.</p>}</div></details>;
+  return <details open={full || undefined} className={`monitor-panel ${full ? "full-history" : ""} ${latest?.totalChanges ? "has-changes" : ""}`}><summary><span className="monitor-symbol"><RefreshCw size={16} /></span><span><strong>{summary}</strong><small>{scheduled ? "Каждый день · 20:00 МСК" : "История проверок"}{latest && ` · ${readableUpdated(latest.checkedAt)}`}</small></span><ChevronDown size={16} /></summary><div className="monitor-details"><p>{scheduled ? "Проверка работает, даже когда приложение закрыто. " : ""}Сравниваем расписание всех групп на ближайшие 14 дней. Здесь показаны изменения выбранной группы.</p>{latest?.baselineDays === 14 && <p>Это первая проверка: сохранена версия для сравнения при следующих запусках.</p>}{!!latest?.failedDates.length && <p className="monitor-failure">Источник не ответил для дат: {latest.failedDates.map(d => fmt(d, { day: "numeric", month: "short" })).join(", ")}. Сохранённые данные этих дней не менялись.</p>}{history.slice(0, count).map((change, i) => <div className={`change-item ${change.kind}`} key={i}><span className="change-label">{change.kind === "added" ? "Добавлено" : change.kind === "removed" ? "Убрано из расписания" : "Изменено"}</span><span className="change-date">{fmt(change.date, { day: "numeric", month: "short" })}</span><strong>{(change.after || change.before)?.subject}</strong><p>{changeDescription(change)}</p>{change.detectedAt && <small>Обнаружено {readableUpdated(change.detectedAt)}</small>}</div>)}{!history.length && <div className="history-empty"><CheckCheck size={24} /><strong>Зафиксированных изменений пока нет</strong><p>Когда появится перенос, замена или отмена, покажем их здесь и в карточке пары.</p></div>}{history.length > count && <p>Показаны последние {count} изменений.</p>}</div></details>;
 }
 function changeDescription(c: ScheduleChange) {
   const describe = (l?: Lesson) => l ? `${l.start}–${l.end} · ${l.type} · ${l.room || "аудитория не указана"} · ${l.teacher}${l.cancelled ? " · отменено" : ""}` : "";

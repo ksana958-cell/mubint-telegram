@@ -3,7 +3,7 @@ import type { Lesson } from "./schedule";
 export interface ScheduleChange { kind: "added" | "removed" | "changed"; date: string; groups: string[]; before?: Lesson; after?: Lesson; detectedAt?: string }
 export interface MonitorStatus {
   recentChanges?: ScheduleChange[];
-  schedule: { enabled: boolean; automationId: string; firstRun: string; timezone: string } | null;
+  schedule: { enabled: boolean; automationId: string; firstRun: string; timezone: string; time?: string; cadence?: string } | null;
   latest: null | { id: string; startedAt: string; checkedAt: string; startDate: string; endDate: string; status: "running" | "completed" | "partial"; checkedDays: number; failedDates: string[]; baselineDays: number; totalChanges: number; changes: ScheduleChange[] };
 }
 const groupKey = (l: Lesson) => [...l.groups].map(g => g.trim().toUpperCase()).sort().join("|");
