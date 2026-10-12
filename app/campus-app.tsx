@@ -317,7 +317,7 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
         </div>}
       </main>
     </div>
-    {shareOpen && group && <ShareSchedule group={group} date={date} week={week} days={days} sport={sportChoice} homework={homework.records} view={view} onClose={() => setShareOpen(false)} />}
+    {shareOpen && group && <ShareSchedule date={date} week={week} days={days} sport={sportChoice} view={view} onClose={() => setShareOpen(false)} />}
     {openedLesson && group && <LessonDialog lesson={openedLesson} group={group} store={homework} onClose={() => setOpenedLesson(null)} />}
     {group && <nav className="mobile-bottom-nav" aria-label="Мобильная навигация">
       <button className={!choosing && section === "today" ? "active" : ""} aria-current={!choosing && section === "today" ? "page" : undefined} onClick={() => navigate("today")}><Clock3 size={20} /><span>Сегодня</span></button>
