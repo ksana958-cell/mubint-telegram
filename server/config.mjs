@@ -11,6 +11,7 @@ export function readConfig(env = process.env) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Неверный PORT.');
   const anchor = env.SCHEDULE_ANCHOR_DATE || '2026-10-12';
   if (!/^20\d\d-\d\d-\d\d$/.test(anchor) || new Date(`${anchor}T12:00:00Z`).toISOString().slice(0, 10) !== anchor) throw new Error('Неверный SCHEDULE_ANCHOR_DATE.');
+  const administrator = String(env.ADMIN_TELEGRAM_ID || '').trim();
   return { port, appUrl, token: env.BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || env.API_TOKEN || '', username: env.BOT_USERNAME || 'RaspisanieMuBINT_bot',
-    adminId: /^\d+$/.test(env.ADMIN_TELEGRAM_ID || '') ? env.ADMIN_TELEGRAM_ID : '', databasePath: env.DATABASE_PATH || resolve('data/campus.sqlite'), anchor, background: env.DISABLE_BACKGROUND !== '1' };
+    adminId: /^\d+$/.test(administrator) ? administrator : '', databasePath: env.DATABASE_PATH || resolve('data/campus.sqlite'), anchor, background: env.DISABLE_BACKGROUND !== '1' };
 }

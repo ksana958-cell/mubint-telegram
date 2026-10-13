@@ -10,6 +10,7 @@
     "start": "node app.js",
     "build": "node scripts/build.mjs",
     "check": "tsc --noEmit",
+    "verify:build": "node scripts/verify-build.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {

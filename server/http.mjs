@@ -39,6 +39,16 @@ function settingsValue(data) {
   if ('morningTime' in data) { if (typeof data.morningTime !== 'string' || !/^(0[5-9]|1[01]):[0-5]\d$/.test(data.morningTime)) throw bad('Выбери время сводки с 05:00 до 11:59 МСК.'); result.morningTime = data.morningTime; }
   return result;
 }
+// For /health: check the exact JS selected by web/index.html, not stale assets beside it.
+async function frontendStatus(webDir) {
+  try {
+    const html = await readFile(resolve(webDir, 'index.html'), 'utf8');
+    const entry = html.match(/src="\/assets\/([a-zA-Z0-9_.-]+\.js)"/);
+    if (!entry) return 'not_built';
+    const js = await readFile(resolve(webDir, 'assets', entry[1]), 'utf8');
+    return js.includes('campus-2026-10-13-reviewed-admin') ? 'ready' : 'old_build';
+  } catch { return 'not_built'; }
+}
 export function createApp({ config, store, schedule, webDir = fileURLToPath(new URL('../web', import.meta.url)), now = () => new Date() }) {
   const limits = new Map();
   return createServer(async (request, response) => {
@@ -48,7 +58,7 @@ export function createApp({ config, store, schedule, webDir = fileURLToPath(new 
     try {
       const url = new URL(request.url, 'http://localhost');
       const path = url.pathname, params = url.searchParams, method = request.method;
-      if (path === '/health' && method === 'GET') return json({ ok: true, appConfigured: !!config.appUrl, botConfigured: !!config.token });
+      if (path === '/health' && method === 'GET') return json({ ok: true, appConfigured: !!config.appUrl, botConfigured: !!config.token, adminConfigured: !!config.adminId, frontendFeatures: await frontendStatus(webDir) });
       if (path.startsWith('/api/')) {
         const key = request.socket.remoteAddress || 'unknown', current = now().getTime();
         let bucket = limits.get(key);

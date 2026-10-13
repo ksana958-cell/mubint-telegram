@@ -28,7 +28,8 @@ const plural = (n: number, forms = ["пара", "пары", "пар"]) => `${n} 
 const timeMsk = () => new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
 const readableUpdated = (v: string | null) => v ? new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(v)) : "—";
 const changeId = (change: ScheduleChange) => JSON.stringify([change.kind, change.date, change.detectedAt, change.before, change.after]);
-const readSeenChanges = (group: string): string[] => {
+const readSeenChanges = (group: string | null): string[] => {
+  if (!group) return [];
   try { const value = JSON.parse(storage.getItem(`mubint.seen-changes.${normalizeGroup(group)}`) || "[]"); return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string").slice(-500) : []; }
   catch { return []; }
 };
@@ -234,7 +235,7 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
   const acknowledgeChanges = () => {
     const next = [...new Set([...seenChanges, ...changes.map(changeId)])].slice(-500);
     setSeenChanges(next);
-    try { storage.setItem(`mubint.seen-changes.${normalizeGroup(group)}`, JSON.stringify(next)); }
+    try { storage.setItem(`mubint.seen-changes.${normalizeGroup(group || "")}`, JSON.stringify(next)); }
     catch { setNotice("Не удалось сохранить просмотренные изменения на этом устройстве."); }
   };
   const filteredMonitor = monitor ? { ...monitor, recentChanges: changes, latest: monitor.latest ? { ...monitor.latest, changes: monitor.latest.changes.filter(changeVisible), totalChanges: monitor.latest.changes.filter(changeVisible).length } : null } : null;

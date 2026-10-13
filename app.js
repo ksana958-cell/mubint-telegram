@@ -10,6 +10,7 @@ const telegram = config.token ? new Telegram(config, store) : null;
 const jobs = new Jobs(store, schedule, null, config);
 const server = createApp({ config, store, schedule });
 server.listen(config.port, '0.0.0.0', () => console.log(`Кампус запущен. Порт ${config.port}. База данных подключена.`));
+console.log(config.adminId ? 'Кампус: админ-панель настроена по Telegram ID.' : 'Кампус: админ-панель выключена. Проверь ADMIN_TELEGRAM_ID (только цифры).');
 if (!config.appUrl) console.log('Подключи домен в BotHost, укажи APP_URL и перезапусти приложение.');
 if (!config.token) console.log('Укажи Bot Token в BotHost для входа и напоминаний в Telegram.');
 let setupRetry;

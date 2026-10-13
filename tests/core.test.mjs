@@ -274,3 +274,28 @@ test('Unattached uploads expire, attached photos survive cleanup and restart', (
     store=new Store(file);store.cleanPhotos(now);assert.ok(store.photo('101','kept'));assert.equal(store.photo('101','orphan'),undefined);assert.equal(store.photo('102','kept'),undefined);store.close();
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
+
+
+test('Admin endpoints and profile require the single configured signed Telegram ID', async t => {
+  const { store, schedule } = setup(t);
+  const config = { token, appUrl: 'https://campus.example', background: true, adminId: '101' };
+  const server = createApp({ config, store, schedule, now: () => now });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = async (path, id = null) => {
+    const headers = id === null ? {} : { Authorization: `tma ${signed(id)}` };
+    const response = await fetch(base + path, { headers });
+    return { status: response.status, body: await response.json() };
+  };
+  const health = await call('/health');
+  assert.equal(health.body.adminConfigured, true);
+  assert.equal(health.body.frontendFeatures, 'old_build'); // Current ZIP requires a new web build.
+  assert.equal((await call('/api/admin/status')).status, 401);
+  assert.equal((await call('/api/admin/status', 102)).status, 403);
+  assert.equal((await call('/api/admin/status', 101)).status, 200);
+  assert.equal((await call('/api/profile', 101)).body.isAdmin, true);
+  assert.equal((await call('/api/profile', 102)).body.isAdmin, false);
+  const forged = await fetch(base + '/api/admin/check', { method: 'POST', headers: { 'X-Telegram-User-ID': '101' } });
+  assert.equal(forged.status, 401);
+});
