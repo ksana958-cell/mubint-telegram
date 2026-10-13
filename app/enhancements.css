@@ -161,3 +161,10 @@ button:disabled,a[aria-disabled=true] { opacity:.65; }
 }
 @media(max-width:370px) { .season-badge { display:none; }.photo-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.dashboard-shortcuts .text-button { font-size:10px; }.settings-shortcuts>button { flex:1;justify-content:center; }.subject-detail { padding:15px 12px; } }
 @media(prefers-reduced-motion:reduce) { .settings-toggle input::before,.lesson-progress i { transition:none; } }
+
+/* Dismiss only the home-screen alert; the complete history remains accessible. */
+.monitor-unseen { margin-bottom: 12px; }
+.monitor-acknowledge { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 8px; padding: 13px 16px; border: 1px solid var(--border, #745a45); border-radius: 12px; background: var(--surface, #3b2b22); color: var(--text, #f2d2b4); font: inherit; font-weight: 650; cursor: pointer; }
+.monitor-acknowledge:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
+.campus-admin{padding:22px;border:1px solid var(--border, #665345);border-radius:18px;margin:20px 0}.campus-admin h2{display:flex;gap:10px;align-items:center}.admin-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0}.admin-stats>div{padding:16px;border:1px solid #80684c;border-radius:12px;display:flex;flex-direction:column;gap:6px}.admin-stats strong{font-size:26px}.admin-stats span{font-size:13px}.campus-admin button{margin:6px 8px 6px 0}

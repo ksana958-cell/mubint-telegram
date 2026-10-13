@@ -31,6 +31,7 @@ export function apiFetch(input: string, init: RequestInit = {}) {
   return fetch(input, { ...init, headers });
 }
 let namespace = 'guest';
+export let currentIsAdmin = false;
 const memory = new Map<string, string>();
 export const storage = {
   getItem(key: string) { const scoped = `campus.${namespace}.${key}`; try { return localStorage.getItem(scoped) ?? memory.get(scoped) ?? null; } catch { return memory.get(scoped) ?? null; } },
@@ -47,6 +48,7 @@ export async function initializeTelegram() {
     const data = await response.json();
     if (!response.ok) return data.error || 'Не удалось войти через Telegram. Закрой и снова открой приложение.';
     namespace = data.user.id;
+    currentIsAdmin = data.isAdmin === true;
     if (['system', 'light', 'dark'].includes(data.settings?.appearance)) setAppearance(data.settings.appearance);
     if (data.group) {
       storage.setItem('mubint.group', data.group);

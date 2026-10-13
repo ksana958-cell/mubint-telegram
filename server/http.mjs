@@ -71,10 +71,24 @@ export function createApp({ config, store, schedule, webDir = fileURLToPath(new 
         }
         if (path === '/api/monitor/status' && method === 'GET') return json(schedule.monitor(groupValue(params.get('group')), config));
         const photoPath = path.match(/^\/api\/photos\/([a-f0-9-]{36})$/);
-        if (!['/api/profile', '/api/settings', '/api/subjects', '/api/photos', '/api/homework', '/api/homework/next'].includes(path) && !photoPath) throw bad('Страница не найдена.', 404);
+        if (!['/api/profile', '/api/settings', '/api/subjects', '/api/photos', '/api/homework', '/api/homework/next', '/api/admin/status', '/api/admin/check'].includes(path) && !photoPath) throw bad('Страница не найдена.', 404);
         const header = request.headers.authorization || '';
         const user = validateInitData(header.startsWith('tma ') ? header.slice(4) : '', config.token, now().getTime());
         if (!user) throw bad('Открой приложение кнопкой в Telegram-боте. Если оно уже открыто, закрой и запусти снова.', 401);
+        if (path.startsWith('/api/admin/')) {
+          if (!config.adminId || user.id !== config.adminId) throw bad('Доступ запрещён.', 403);
+          if (path === '/api/admin/status' && method === 'GET') {
+            const count = table => store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+            return json({ users: count('users'), homework: count('homework'), groups: schedule.catalog.length,
+              lastCheck: store.state('monitor'), queued: store.db.prepare("SELECT COUNT(*) AS n FROM outbox WHERE status='pending'").get().n });
+          }
+          if (path === '/api/admin/check' && method === 'POST') {
+            if (schedule.checking) throw bad('Проверка уже выполняется.', 409);
+            const result = await schedule.check(moscowToday());
+            return json({ result });
+          }
+          throw bad('Метод не поддерживается.', 405);
+        }
         let profile = store.touchUser(user);
         if (user.allowsWrite && !profile.chat_id) { store.db.prepare('UPDATE users SET chat_id=? WHERE id=?').run(user.id, user.id); profile = store.user(user.id); }
         if (path === '/api/photos') {
@@ -110,7 +124,7 @@ export function createApp({ config, store, schedule, webDir = fileURLToPath(new 
             if (!['all', 'pe', 'chess'].includes(data.sport)) throw bad('Выбери физкультуру или шахматы.');
             store.preferences(user.id, group, data.sport); profile = store.user(user.id);
           } else if (method !== 'GET') throw bad('Метод не поддерживается.', 405);
-          return json({ user: { id: user.id, name: user.name }, group: profile.group_code, sport: profile.sport, settings: store.settings(user.id), remindersAvailable: !!(config.background && profile.chat_id && profile.notifications) });
+          return json({ user: { id: user.id, name: user.name }, group: profile.group_code, sport: profile.sport, settings: store.settings(user.id), remindersAvailable: !!(config.background && profile.chat_id && profile.notifications), isAdmin: !!config.adminId && user.id === config.adminId });
         }
         if (path === '/api/homework/next' && method === 'GET') {
           const group = groupValue(params.get('group')), subject = subjectValue(params.get('subject')), date = dateValue(params.get('date'));

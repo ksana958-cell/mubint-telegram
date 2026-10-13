@@ -1,5 +1,5 @@
 "use client";
-import { apiFetch, storage, telegram, botLink } from "./telegram";
+import { apiFetch, storage, telegram, botLink, currentIsAdmin } from "./telegram";
 import { currentSeason, SEASON_EVENT, seasonNames } from "./season";
 import { Leaf, Snowflake, Flower2, Sun } from "lucide-react";
 
@@ -16,7 +16,7 @@ import { SubjectsPage } from "./subjects";
 import { SettingsPage } from "./settings";
 import { ShareSchedule } from "./share-schedule";
 import { Settings2, Share2, MoreHorizontal } from "lucide-react";
-type Section = "today" | "calendar" | "homework" | "changes" | "subjects" | "settings";
+type Section = "today" | "calendar" | "homework" | "changes" | "subjects" | "settings" | "admin";
 const sports: Array<[SportChoice, string]> = [["all", "Все варианты"], ["pe", "Физкультура"], ["chess", "Шахматы"]];
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -27,6 +27,11 @@ const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.sl
 const plural = (n: number, forms = ["пара", "пары", "пар"]) => `${n} ${n % 100 >= 11 && n % 100 <= 14 ? forms[2] : n % 10 === 1 ? forms[0] : n % 10 >= 2 && n % 10 <= 4 ? forms[1] : forms[2]}`;
 const timeMsk = () => new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
 const readableUpdated = (v: string | null) => v ? new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(v)) : "—";
+const changeId = (change: ScheduleChange) => JSON.stringify([change.kind, change.date, change.detectedAt, change.before, change.after]);
+const readSeenChanges = (group: string): string[] => {
+  try { const value = JSON.parse(storage.getItem(`mubint.seen-changes.${normalizeGroup(group)}`) || "[]"); return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string").slice(-500) : []; }
+  catch { return []; }
+};
 const initialDate = () => { const date = moscowToday(); return new Date(`${date}T12:00:00Z`).getUTCDay() === 0 ? addDays(date, 1) : date; };
 
 function Mark({ small = false }: { small?: boolean }) {
@@ -79,6 +84,8 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [monitor, setMonitor] = useState<MonitorStatus | null>(null);
   const [monitorError, setMonitorError] = useState(false);
+  const [seenChanges, setSeenChanges] = useState<string[]>([]);
+  useEffect(() => { setSeenChanges(readSeenChanges(group)); }, [group]);
   const [calendarMonth, setCalendarMonth] = useState(() => initialDate().slice(0, 7));
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState<Section>("today");
@@ -107,7 +114,7 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
         else { setGroupStep("sport"); setChoosing(true); }
       }
       const params = new URLSearchParams(window.location.search), target = params.get("section"), targetDate = params.get("date");
-      if (target && ["homework", "today", "changes", "subjects", "settings"].includes(target)) setSection(target as Section);
+      if (target && ["homework", "today", "changes", "subjects", "settings", "admin"].includes(target)) setSection(target as Section);
       if (targetDate && validDate(targetDate)) setDate(targetDate);
     } catch { /* The app remains usable when browser storage is disabled. */ }
     const tick = setInterval(() => setNow(timeMsk()), 30000);
@@ -223,9 +230,16 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
   const statusFresh = selectedDay?.status === "live";
   const changeVisible = (change: ScheduleChange) => !!(change.after || change.before) && matchesSport((change.after || change.before)!, sportChoice);
   const changes = (monitor?.recentChanges || monitor?.latest?.changes || []).filter(changeVisible);
+  const unseenChanges = changes.filter(change => !seenChanges.includes(changeId(change)));
+  const acknowledgeChanges = () => {
+    const next = [...new Set([...seenChanges, ...changes.map(changeId)])].slice(-500);
+    setSeenChanges(next);
+    try { storage.setItem(`mubint.seen-changes.${normalizeGroup(group)}`, JSON.stringify(next)); }
+    catch { setNotice("Не удалось сохранить просмотренные изменения на этом устройстве."); }
+  };
   const filteredMonitor = monitor ? { ...monitor, recentChanges: changes, latest: monitor.latest ? { ...monitor.latest, changes: monitor.latest.changes.filter(changeVisible), totalChanges: monitor.latest.changes.filter(changeVisible).length } : null } : null;
   const scheduleVisible = section === "today" || section === "calendar";
-  const sectionTitle = section === "homework" ? "Мои задания" : section === "changes" ? "Изменения" : section === "subjects" ? "Мои предметы" : section === "settings" ? "Настройки" : "Моё расписание";
+  const sectionTitle = section === "homework" ? "Мои задания" : section === "changes" ? "Изменения" : section === "subjects" ? "Мои предметы" : section === "admin" ? "Админ-панель" : section === "settings" ? "Настройки" : "Моё расписание";
   const tasksCount = homework.records.filter(record => !record.done).length;
 
   return <div className="app-shell">
@@ -276,14 +290,15 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
           {notice && <div className="notice">{notice}<button onClick={() => setNotice("")} aria-label="Закрыть уведомление"><X size={15} /></button></div>}
           {section === "homework" && <HomeworkBoard key={group} store={homework} today={today} onOpenDay={openDay} />}
           {section === "subjects" && group && <SubjectsPage key={group} group={group} store={homework} days={days} today={today} sport={sportChoice} onOpenLesson={setOpenedLesson} onHomework={() => navigate("homework")} />}
-          {section === "settings" && <><div className="settings-shortcuts"><button className="secondary-button" onClick={() => navigate("subjects")}><BookOpen size={18} />Предметы</button><button className="secondary-button" onClick={() => { openGroups(); scrollTo(); }}><Users size={18} />Моя группа</button></div><SettingsPage /></>}
+          {section === "admin" && currentIsAdmin && <AdminPanel /> }
+          {section === "settings" && <><div className="settings-shortcuts"><button className="secondary-button" onClick={() => navigate("subjects")}><BookOpen size={18} />Предметы</button><button className="secondary-button" onClick={() => { openGroups(); scrollTo(); }}><Users size={18} />Моя группа</button></div><SettingsPage />{currentIsAdmin && <button className="secondary-button" onClick={() => navigate("admin")}><Crown size={18} /> Админ-панель</button>}</>}
           <div className="changes-page" hidden={section !== "changes"}>
             {monitor ? <MonitorPanel monitor={filteredMonitor} full /> : <div className="homework-access" role="status">{monitorError ? <>История временно недоступна.<button className="text-button" onClick={() => setRefreshToken(n => n + 1)}><RefreshCw size={14} /> Повторить</button></> : "Загружаем историю проверок…"}</div>}
           </div>
           <div className="schedule-layout" hidden={!scheduleVisible}><section className="schedule-main" aria-label="Расписание занятий">
             <div className="schedule-controls"><div className="week-navigation"><h2>{weekTitle}<small>{weekStart.slice(0, 4)}</small></h2><button className="today-button" onClick={() => setDate(today)}>Сегодня</button></div><button className="open-mini-calendar icon-button" onClick={() => { setCalendarOpen(!calendarOpen); if (!calendarOpen) scrollTo("schedule-calendar"); }} aria-label="Выбрать дату в календаре" aria-expanded={calendarOpen}><CalendarDays size={19} /></button><div className="view-toggle" aria-label="Вид расписания"><button className={view === "day" ? "selected" : ""} onClick={() => setView("day")} aria-pressed={view === "day"}><List size={14} />День</button><button className={view === "week" ? "selected" : ""} onClick={() => setView("week")} aria-pressed={view === "week"}><LayoutGrid size={14} />Неделя</button></div></div>
             <section className="week-rail" aria-label="Выбор дня и недели"><button className="week-rail-arrow" onClick={() => setDate(addDays(date, -7))} aria-label="Предыдущая неделя"><ChevronLeft size={17} /></button><div className="week-rail-days">{week.map((day, index) => { const lessons = days[day]?.lessons.filter(l => !l.cancelled && matchesSport(l, sportChoice)); return <button key={day} className={`week-rail-day ${day === date ? "selected" : ""} ${day === today ? "current" : ""}`} onClick={() => { setDate(day); setView("day"); }} aria-label={fmt(day, { weekday: "long", day: "numeric", month: "long" })} aria-pressed={day === date} aria-current={day === today ? "date" : undefined}><span>{WEEKDAYS[index]}</span><strong>{Number(day.slice(8))}</strong><i className={lessons?.length ? "has-lessons" : ""} /></button>; })}</div><button className="week-rail-arrow" onClick={() => setDate(addDays(date, 7))} aria-label="Следующая неделя"><ChevronRight size={17} /></button></section>
-            <MonitorPanel monitor={filteredMonitor} />
+            {unseenChanges.length > 0 && <div className="monitor-unseen"><MonitorPanel monitor={{ ...filteredMonitor!, recentChanges: unseenChanges, latest: filteredMonitor?.latest ? { ...filteredMonitor.latest, changes: unseenChanges, totalChanges: unseenChanges.length } : null }} /><button type="button" className="monitor-acknowledge" onClick={acknowledgeChanges}><CheckCheck size={17} /> Просмотрено</button></div>}
             <div className="filter-line"><div className="type-filters" aria-label="Тип занятия">{([['all', 'Все занятия'], ['lecture', 'Лекции'], ['practice', 'Практика'], ['other', 'Другие']] as const).map(([key, name]) => <button key={key} className={filter === key ? "active" : ""} aria-pressed={filter === key} onClick={() => setFilter(key)}>{key !== "all" && <i className={key} />}{name}</button>)}</div><button className={`icon-button refresh-button ${loadingDates.length ? "loading" : ""}`} title="Обновить с сайта вуза" aria-label="Обновить расписание" disabled={loadingDates.length > 0} onClick={() => setRefreshToken(n => n + 1)}><RefreshCw size={16} /></button></div>
             <div className="search-field subject-search"><Search size={16} /><input value={subjectQuery} onChange={e => setSubjectQuery(e.target.value)} placeholder="Предмет, преподаватель или аудитория" aria-label="Поиск по расписанию" />{subjectQuery && <button onClick={() => setSubjectQuery("")} aria-label="Очистить поиск по расписанию"><X size={14} /></button>}</div>
 
@@ -324,7 +339,7 @@ export default function CampusApp({ initialGroups }: { initialGroups: string[] }
       <button className={!choosing && section === "calendar" ? "active" : ""} aria-current={!choosing && section === "calendar" ? "page" : undefined} onClick={() => navigate("calendar")}><CalendarDays size={20} /><span>Календарь</span></button>
       <button className={!choosing && section === "homework" ? "active" : ""} aria-current={!choosing && section === "homework" ? "page" : undefined} onClick={() => navigate("homework")}><span className="mobile-nav-icon"><ClipboardList size={20} />{tasksCount > 0 && <i>{tasksCount > 99 ? "99+" : tasksCount}</i>}</span><span>Задания</span></button>
       <button className={!choosing && section === "changes" ? "active" : ""} aria-current={!choosing && section === "changes" ? "page" : undefined} onClick={() => navigate("changes")}><BellRing size={20} /><span>Изменения</span></button>
-      <button className={!choosing && ["settings", "subjects"].includes(section) ? "active" : ""} aria-current={!choosing && ["settings", "subjects"].includes(section) ? "page" : undefined} onClick={() => navigate("settings")}><MoreHorizontal size={20} /><span>Ещё</span></button>
+      <button className={!choosing && ["settings", "subjects", "admin"].includes(section) ? "active" : ""} aria-current={!choosing && ["settings", "subjects", "admin"].includes(section) ? "page" : undefined} onClick={() => navigate("settings")}><MoreHorizontal size={20} /><span>Ещё</span></button>
     </nav>}
   </div>;
 }
@@ -356,4 +371,32 @@ function MonitorPanel({ monitor, full = false }: { monitor: MonitorStatus | null
 function changeDescription(c: ScheduleChange) {
   const describe = (l?: Lesson) => l ? `${l.start}–${l.end} · ${l.type} · ${l.room || "аудитория не указана"} · ${l.teacher}${l.cancelled ? " · отменено" : ""}` : "";
   return c.kind === "changed" ? `Было: ${describe(c.before)}. Стало: ${describe(c.after)}.` : describe(c.after || c.before);
+}
+
+function AdminPanel() {
+  const [data, setData] = useState<{ users: number; homework: number; groups: number; queued: number; lastCheck: { checkedAt?: string; status?: string; totalChanges?: number } | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    const response = await apiFetch('/api/admin/status');
+    if (!response.ok) throw new Error('Не удалось получить статистику.');
+    setData(await response.json());
+  }, []);
+  useEffect(() => { void load().catch(e => setError(e.message)); }, [load]);
+  const check = async () => {
+    if (busy || !window.confirm('Запустить проверку расписания всех групп на 14 дней?')) return;
+    setBusy(true); setError('');
+    try { const response = await apiFetch('/api/admin/check', { method: 'POST' });
+      if (!response.ok) { const body = await response.json(); throw new Error(body.error || 'Ошибка проверки'); }
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Ошибка'); }
+    finally { setBusy(false); }
+  };
+  return <section className="campus-admin"><h2><Crown size={22} /> Управление Кампусом</h2><p>Доступ только владельцу. Все операции проверяются сервером.</p>
+    {data && <div className="admin-stats"><div><strong>{data.users}</strong><span>Пользователей</span></div><div><strong>{data.groups}</strong><span>Групп</span></div><div><strong>{data.homework}</strong><span>Домашних заданий</span></div><div><strong>{data.queued}</strong><span>В очереди уведомлений</span></div></div>}
+    <p>Последняя проверка: {data?.lastCheck?.checkedAt ? readableUpdated(data.lastCheck.checkedAt) : 'ещё не выполнялась'}. Изменений: {data?.lastCheck?.totalChanges ?? '—'}.</p>
+    <button className="secondary-button" disabled={busy} onClick={() => void check()}><RefreshCw size={17} /> {busy ? 'Проверяем…' : 'Проверить расписание сейчас'}</button>
+    <button className="secondary-button" onClick={() => void load().catch(e => setError(e.message))}>Обновить статистику</button>
+    {error && <p role="alert">{error}</p>}
+  </section>;
 }
