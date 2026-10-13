@@ -1,104 +1,50 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, Download, Image, LoaderCircle, Share2, X } from 'lucide-react';
-import type { ScheduleDay } from '@/lib/schedule';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowUpRight, BookOpen, CalendarDays, Check, ChevronRight, Clock3, LoaderCircle, MapPin, Search, Users } from 'lucide-react';
+import type { Lesson, ScheduleDay } from '@/lib/schedule';
 import { matchesSport, type Homework, type SportChoice } from '@/lib/student';
-const dateText = (date: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('ru-RU', { ...options, timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
-const classCount = (n: number) => `${n} ${n % 100 >= 11 && n % 100 <= 14 ? 'занятий' : n % 10 === 1 ? 'занятие' : n % 10 >= 2 && n % 10 <= 4 ? 'занятия' : 'занятий'}`;
-
-type ShareInput = { group: string; dates: string[]; days: Record<string, ScheduleDay>; sport: SportChoice; homework: Homework[]; includeHomework: boolean };
-export async function scheduleImage(input: ShareInput): Promise<Blob> {
-  await document.fonts.ready;
-  const canvas = document.createElement('canvas'); canvas.width = 1200; canvas.height = 100;
-  const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Не удалось создать картинку на этом устройстве.');
-  const style = getComputedStyle(document.documentElement), color = (key: string) => style.getPropertyValue(key).trim();
-  const palette = { bg: color('--bg'), surface: color('--surface'), ink: color('--ink'), muted: color('--muted'), line: color('--line'), accent: color('--accent-strong'), tint: color('--accent-soft'), banner: color('--banner-start') };
-  const font = (size: number, weight = 400) => { ctx.font = `${weight} ${size}px system-ui, -apple-system, sans-serif`; };
-  const wrap = (value: string, width: number, size: number, weight = 400, max = 99) => {
-    font(size, weight); const lines: string[] = []; let line = '';
-    for (const word of value.replace(/\s+/g, ' ').trim().split(' ')) {
-      if (ctx.measureText((line ? line + ' ' : '') + word).width <= width) line += (line ? ' ' : '') + word;
-      else {
-        if (line) lines.push(line); line = '';
-        for (const char of word) { if (ctx.measureText(line + char).width > width) { lines.push(line); line = ''; } line += char; }
-      }
-    }
-    if (line) lines.push(line);
-    if (lines.length > max) { lines.length = max; let end = lines[max - 1]; while (ctx.measureText(end + '…').width > width) end = end.slice(0, -1); lines[max - 1] = end + '…'; }
-    return lines;
-  };
-  const blocks = input.dates.map(date => {
-    const day = input.days[date];
-    if (!day || day.status === 'unavailable') throw new Error('Дождись загрузки всех выбранных дней.');
-    const lessons = day.lessons.filter(l => matchesSport(l, input.sport)).sort((a,b) => a.start.localeCompare(b.start)).map(lesson => {
-      const title = wrap(lesson.subject, 800, 30, 650, 4);
-      const meta = wrap(`${lesson.type}${lesson.cancelled ? ' · ОТМЕНЕНО' : ''} · ${lesson.online ? 'Онлайн' : 'Ауд.'} ${lesson.room || 'не указана'}`, 800, 22, 500, 3);
-      const teacher = wrap(lesson.teacher || 'Преподаватель не указан', 800, 20, 400, 2);
-      return { lesson, title, meta, teacher, height: 38 + title.length * 38 + meta.length * 29 + teacher.length * 27 };
-    });
-    const tasks = input.includeHomework ? input.homework.filter(r => r.dueDate === date && !r.done).map(r => {
-      const excerpt = `${r.subject}: ${r.content} ${(r.checklist || []).map(x => `${x.done ? '✓' : '□'} ${x.text}`).join('; ')}${r.photos?.length ? ` · Фото: ${r.photos.length}` : ''}`;
-      const lines = wrap(excerpt, 986, 23, 400, 4); return { lines, height: lines.length * 31 + 20 };
-    }) : [];
-    const height = 70 + (lessons.length ? lessons.reduce((n,l) => n + l.height + 12, 0) : 72) + (tasks.length ? 56 + tasks.reduce((n,t) => n + t.height, 0) : 0) + 28;
-    return { date, day, lessons, tasks, height };
-  });
-  const height = 255 + blocks.reduce((n,b) => n + b.height, 0) + 145;
-  if (height > 16000) throw new Error('Слишком много текста для одной картинки. Выбери один день или убери ДЗ.');
-  canvas.height = height;
-  const text = (value: string, x: number, y: number, size: number, weight = 400, fill = palette.ink) => { font(size, weight); ctx.fillStyle = fill; ctx.fillText(value, x, y); };
-  const rect = (x: number,y: number,w: number,h: number,fill: string,radius = 20) => { ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(x,y,w,h,radius); ctx.fill(); };
-  ctx.fillStyle = palette.bg; ctx.fillRect(0,0,1200,height);
-  rect(48,36,1104,184,palette.banner,28);
-  text('кампус.',80,87,36,750,palette.accent); text('МУБиНТ',982,84,24,650,palette.accent);
-  text(input.group,80,143,43,750); text(input.dates.length === 1 ? dateText(input.dates[0],{ day:'numeric',month:'long',year:'numeric' }) : `${dateText(input.dates[0],{day:'numeric',month:'short'})} — ${dateText(input.dates.at(-1)!,{day:'numeric',month:'long',year:'numeric'})}`,80,187,26,500);
-  let y = 263;
-  for (const block of blocks) {
-    text(dateText(block.date,{weekday:'long',day:'numeric',month:'long'}),64,y,29,700);
-    text(classCount(block.lessons.filter(l => !l.lesson.cancelled).length),998,y,21,500,palette.muted); y += 26;
-    if (!block.lessons.length) { rect(64,y,1072, 60,palette.surface); text('На эту дату занятия не опубликованы',88,y+38,23,400,palette.muted); y += 72; }
-    for (const row of block.lessons) {
-      rect(64,y,1072,row.height,palette.surface); rect(64,y+20,5,row.height-40,palette.accent,2);
-      text(row.lesson.start,88,y+47,31,700); text(row.lesson.end,88,y+79,23,450,palette.muted);
-      let lineY = y+42;
-      for (const line of row.title) { text(line,244,lineY,30,650); lineY += 38; }
-      for (const line of row.meta) { text(line,244,lineY,22,500,palette.accent); lineY += 29; }
-      for (const line of row.teacher) { text(line,244,lineY,20,400,palette.muted); lineY += 27; }
-      y += row.height+12;
-    }
-    if (block.tasks.length) {
-      text('МОИ ДЗ · КРАТКО',88,y+29,21,700,palette.accent); y += 56;
-      for (const task of block.tasks) { for (const line of task.lines) { text(line,88,y+24,23); y += 31; } y += 20; }
-    }
-    y += 54;
-  }
-  ctx.strokeStyle = palette.line; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(64,y); ctx.lineTo(1136,y); ctx.stroke();
-  text('lk.mubint.ru · Время московское',64,y+40,22,500,palette.muted);
-  const stamp = new Intl.DateTimeFormat('ru-RU',{timeZone:'Europe/Moscow',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date());
-  text(`Снимок расписания · ${stamp}${blocks.some(b => b.day.status !== 'live') ? ' · Есть сохранённые копии' : ''}`,64,y+76,20,400,palette.muted);
-  const blob = await new Promise<Blob>((resolve,reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Не удалось сохранить картинку.')), 'image/png'));
-  canvas.width = 0; canvas.height = 0; return blob;
-}
-
-export function ShareSchedule({ group, date, week, days, sport, homework, view, onClose }: { group: string; date: string; week: string[]; days: Record<string, ScheduleDay>; sport: SportChoice; homework: Homework[]; view: 'day'|'week'; onClose: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null), [range,setRange] = useState(view), [include,setInclude] = useState(false), [url,setUrl] = useState(''), [file,setFile] = useState<File | null>(null), [busy,setBusy] = useState(true), [error,setError] = useState(''), [message,setMessage] = useState('');
-  useEffect(() => { const d = ref.current; d?.showModal(); return () => d?.close(); }, []);
+import { apiFetch } from './telegram';
+import { HomeworkAccess, HomeworkContent } from './homework';
+import type { HomeworkStore } from './use-homework';
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+const shortDate = (s: string) => s ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${s}T12:00:00Z`)) : 'Дата ожидается';
+export function SubjectsPage({ group, store, days, today, sport, onOpenLesson, onHomework }: { group: string; store: HomeworkStore; days: Record<string, ScheduleDay>; today: string; sport: SportChoice; onOpenLesson: (lesson: Lesson) => void; onHomework: () => void }) {
+  const [remote, setRemote] = useState<Lesson[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState(''), [query, setQuery] = useState(''), [selected, setSelected] = useState<string | null>(null), [history, setHistory] = useState(false), [busy, setBusy] = useState('');
   useEffect(() => {
-    let alive = true, objectUrl = ''; setBusy(true); setError(''); setFile(null); setUrl(''); setMessage('');
-    void scheduleImage({ group, dates: range === 'day' ? [date] : week, days, sport, homework, includeHomework: include }).then(blob => {
-      if (!alive) return; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); setFile(new File([blob],`campus-${group}-${date}-${range}.png`,{type:'image/png'}));
-    }).catch(e => { if (alive) setError(e.message || 'Не удалось создать картинку.'); }).finally(() => { if (alive) setBusy(false); });
-    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [group,date,week,days,sport,homework,range,include]);
-  const nativeShare = !!file && !!navigator.canShare?.({files:[file]});
-  const share = async () => {
-    if (!file) return;
-    try { await navigator.share({ files:[file], title:`Расписание ${group}` }); setMessage('Картинка передана в меню отправки.'); }
-    catch (e) { if (!(e instanceof DOMException && e.name === 'AbortError')) setError('Системная отправка недоступна. Сохрани картинку и прикрепи её в Telegram.'); }
-  };
-  return <dialog ref={ref} className="share-dialog" aria-labelledby="share-title" onCancel={e => { e.preventDefault(); onClose(); }}><div className="dialog-top"><span>РАСПИСАНИЕ В КАРТИНКЕ</span><button className="icon-button" onClick={onClose} aria-label="Закрыть экспорт"><X size={21} /></button></div><h2 id="share-title">Поделись учебными планами</h2><p>Группа {group} · фото личных заданий в картинку не попадают.</p>
-    <div className="share-options"><div className="view-toggle"><button aria-pressed={range==='day'} className={range==='day'?'selected':''} onClick={() => setRange('day')}>День</button><button aria-pressed={range==='week'} className={range==='week'?'selected':''} onClick={() => setRange('week')}>Неделя</button></div><label className="done-option"><input type="checkbox" checked={include} onChange={e => setInclude(e.target.checked)} />Добавить краткие записи моих ДЗ</label></div>
-    {busy ? <div className="share-loading" role="status"><LoaderCircle className="spinning" />Готовим картинку…</div> : url ? <div className="share-preview"><img src={url} alt={`Предпросмотр расписания группы ${group}`} /></div> : null}
-    {error && <p className="homework-error" role="alert">{error}</p>}<div className="share-actions">{nativeShare && <button className="primary-button" disabled={busy} onClick={() => void share()}><Share2 size={17} />Отправить</button>}{url && <a href={url} download={file?.name} className="secondary-button" onClick={() => setMessage('Если файл не сохранился, открой картинку и удерживай её для сохранения.')}><Download size={17} />Сохранить PNG</a>}{url && <a className="text-button" href={url} target="_blank" rel="noreferrer"><Image size={16} />Открыть картинку</a>}</div>
-    {message && <p role="status" className="editor-hint"><Check size={14} />{message}</p>}{!nativeShare && !busy && file && <p className="editor-hint">Сохрани PNG или удерживай картинку для сохранения, затем прикрепи её в чат Telegram.</p>}
-  </dialog>;
+    const controller = new AbortController(); setLoading(true);
+    void apiFetch(`/api/subjects?group=${encodeURIComponent(group)}`, { signal: controller.signal }).then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Не удалось загрузить предметы.'); if (!controller.signal.aborted) { setRemote(data.lessons); setError(''); } })
+      .catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [group]);
+  const subjects = useMemo(() => {
+    const entries = new Map<string, { name: string; lessons: Lesson[]; homework: Homework[] }>();
+    const ensure = (name: string) => { const key = norm(name); if (!entries.has(key)) entries.set(key, { name, lessons: [], homework: [] }); return entries.get(key)!; };
+    // Newer days currently on screen override an older server snapshot by date.
+    const loaded = new Set(Object.values(days).filter(d => d.status !== 'unavailable').map(d => d.date));
+    const lessons = [...remote.filter(l => !loaded.has(l.date)), ...Object.values(days).filter(d => d.status !== 'unavailable').flatMap(d => d.lessons)];
+    for (const l of lessons) if (l.date >= today && !l.cancelled && matchesSport(l, sport)) ensure(l.subject).lessons.push(l);
+    for (const r of store.records) ensure(r.subject).homework.push(r);
+    for (const entry of entries.values()) entry.lessons.sort((a,b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+    return [...entries.entries()].sort(([,a],[,b]) => a.name.localeCompare(b.name, 'ru'));
+  }, [remote, days, store.records, today, sport]);
+  const current = subjects.find(([key]) => key === selected)?.[1];
+  const tasks = current?.homework.filter(r => r.done === history).sort((a,b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')) || [];
+  const toggle = async (record: Homework) => { setBusy(record.lessonKey); setError(''); try { await store.save({ ...record, done: !record.done }); } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось сохранить статус.'); } finally { setBusy(''); } };
+  return <section className={`subjects-page ${current ? 'subject-is-open' : ''}`}>
+    <div className="subjects-intro"><BookOpen size={22} /><p>Пары, преподаватели и задания по каждому предмету. Ближайшие занятия показаны по уже загруженному расписанию.</p></div>
+    {error && <p className="homework-error" role="alert">{error}</p>}
+    <div className="subjects-layout"><div className="subject-directory"><div className="search-field"><Search size={16} /><input placeholder="Найти предмет" aria-label="Поиск предмета" value={query} onChange={e => setQuery(e.target.value)} /></div>
+      {loading && <p className="editor-hint" role="status"><LoaderCircle size={14} className="spinning" /> Загружаем предметы…</p>}
+      {!subjects.length && !loading && <p className="editor-hint">Предметы появятся после загрузки расписания или добавления первого ДЗ.</p>}
+      {subjects.filter(([,s]) => norm(s.name).includes(norm(query))).map(([key,s]) => <button className={`subject-item ${selected === key ? 'selected' : ''}`} key={key} aria-pressed={selected === key} onClick={() => { setSelected(key); setHistory(false); }}><span className="subject-icon"><BookOpen size={19} /></span><span><strong>{s.name}</strong><small>{s.lessons[0] ? `${shortDate(s.lessons[0].date)} · ${s.lessons[0].start}` : 'Следующая пара пока не загружена'}</small><em>{s.homework.filter(r => !r.done).length} ДЗ в работе</em></span><ChevronRight size={16} /></button>)}
+      {!!subjects.length && !subjects.some(([,s]) => norm(s.name).includes(norm(query))) && <p className="editor-hint">Такого предмета пока нет.</p>}
+    </div>
+    <div className="subject-detail">{current ? <><button className="text-button subject-back" onClick={() => setSelected(null)}><ArrowLeft size={16} />Все предметы</button><div className="subject-title"><span className="feature-icon green"><BookOpen size={23} /></span><h2>{current.name}</h2></div>
+      <div className="subject-teachers"><Users size={17} /><span>{[...new Set(current.lessons.map(l => l.teacher).filter(Boolean))].join(' · ') || 'Преподаватель появится вместе с расписанием'}</span></div>
+      <h3><CalendarDays size={17} />Ближайшие занятия</h3><div className="subject-lessons">{current.lessons.slice(0, 8).map(l => <button key={l.id} onClick={() => onOpenLesson(l)}><span><strong>{shortDate(l.date)}</strong><small><Clock3 size={12} />{l.start}–{l.end}</small></span><span className={`type-tag ${l.kind}`}>{l.type}</span><span className="subject-room"><MapPin size={13} />{l.room || 'Не указана'}</span><ChevronRight size={14} /></button>)}</div>{!current.lessons.length && <p className="editor-hint">Следующая пара пока не загружена. Её можно найти в календаре; опубликованные дни сохранятся здесь.</p>}
+      <div className="subject-tasks-heading"><h3>Задания по предмету</h3><button className="text-button" onClick={onHomework}>Все ДЗ<ArrowUpRight size={14} /></button></div><HomeworkAccess store={store} />
+      <div className="task-filter"><button className={!history ? 'active' : ''} aria-pressed={!history} onClick={() => setHistory(false)}>В работе<span>{current.homework.filter(r => !r.done).length}</span></button><button className={history ? 'active' : ''} aria-pressed={history} onClick={() => setHistory(true)}>История<span>{current.homework.filter(r => r.done).length}</span></button></div>
+      {!tasks.length && store.ready && <p className="subject-empty">{history ? 'Выполненные задания появятся здесь.' : 'По этому предмету нет заданий в работе.'}</p>}
+      {tasks.map(r => <article className="task-card subject-task" key={r.lessonKey}><div className="task-card-heading"><button className={`task-check ${r.done ? 'checked' : ''}`} role="checkbox" aria-checked={r.done} aria-label={r.done ? 'Вернуть ДЗ в работу' : 'Отметить ДЗ выполненным'} disabled={busy === r.lessonKey} onClick={() => void toggle(r)}>{busy === r.lessonKey ? <LoaderCircle size={16} className="spinning" /> : r.done ? <Check size={16} /> : null}</button><div><strong>{r.dueDate ? `К ${shortDate(r.dueDate)}` : 'Ждём следующую пару'}</strong><small>Задано {shortDate(r.sourceDate)}</small></div></div><HomeworkContent record={r} store={store} /></article>)}
+    </> : <div className="subject-placeholder"><BookOpen size={38} /><h2>Всё по полочкам</h2><p>Выбери предмет, чтобы увидеть его пары и задания.</p></div>}</div></div>
+  </section>;
 }

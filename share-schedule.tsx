@@ -1,61 +1,89 @@
-import { useEffect, useState } from 'react';
-import { BellRing, Check, Clock3, LoaderCircle, Moon, Smartphone, Sun, Sunrise, RefreshCw, ArrowUpRight, Monitor } from 'lucide-react';
-import { apiFetch, botLink, telegram } from './telegram';
-import { currentAppearance, setAppearance } from './season';
-import type { Appearance, UserSettings } from '@/lib/student';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Download, Image, LoaderCircle, Share2, X } from 'lucide-react';
+import type { ScheduleDay } from '@/lib/schedule';
+import { matchesSport, type SportChoice } from '@/lib/student';
+const dateText = (date: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('ru-RU', { ...options, timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
 
-function HomeScreenButton() {
-  const [status, setStatus] = useState('loading'), [message, setMessage] = useState('');
-  useEffect(() => {
-    const tg = telegram(); let alive = true;
-    if (!tg?.initData || !tg.isVersionAtLeast?.('8.0') || !tg.addToHomeScreen || !tg.checkHomeScreenStatus) { setStatus('unsupported'); return; }
-    const added = () => { if (alive) { setStatus('added'); setMessage('Кампус добавлен на главный экран.'); } };
-    try { tg.checkHomeScreenStatus(value => { if (alive) setStatus(value); }); tg.onEvent?.('homeScreenAdded', added); }
-    catch { setStatus('unsupported'); }
-    const timer = setTimeout(() => { if (alive) setStatus(s => s === 'loading' ? 'unknown' : s); }, 2500);
-    return () => { alive = false; clearTimeout(timer); tg.offEvent?.('homeScreenAdded', added); };
-  }, []);
-  const add = () => {
-    try { telegram()?.addToHomeScreen?.(); setMessage('Подтверди добавление в окне Telegram. Если окно не появилось, проверь меню приложения ⋮.'); }
-    catch { setMessage('Не удалось открыть добавление. Попробуй через меню приложения ⋮.'); }
+type ShareInput = { dates: string[]; days: Record<string, ScheduleDay>; sport: SportChoice };
+export async function scheduleImage(input: ShareInput): Promise<Blob> {
+  await document.fonts.ready;
+  const canvas = document.createElement('canvas'); canvas.width = 1200; canvas.height = 100;
+  const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Не удалось создать картинку на этом устройстве.');
+  const style = getComputedStyle(document.documentElement), color = (key: string) => style.getPropertyValue(key).trim();
+  const palette = { bg: color('--bg'), surface: color('--surface'), ink: color('--ink'), muted: color('--muted'), accent: color('--accent-strong') };
+  const font = (size: number, weight = 400) => { ctx.font = `${weight} ${size}px system-ui, -apple-system, sans-serif`; };
+  const wrap = (value: string, width: number, size: number, weight = 400, max = 99) => {
+    font(size, weight); const lines: string[] = []; let line = '';
+    for (const word of value.replace(/\s+/g, ' ').trim().split(' ')) {
+      if (ctx.measureText((line ? line + ' ' : '') + word).width <= width) line += (line ? ' ' : '') + word;
+      else {
+        if (line) lines.push(line); line = '';
+        for (const char of word) { if (ctx.measureText(line + char).width > width) { lines.push(line); line = ''; } line += char; }
+      }
+    }
+    if (line) lines.push(line);
+    if (lines.length > max) { lines.length = max; let end = lines[max - 1]; while (ctx.measureText(end + '…').width > width) end = end.slice(0, -1); lines[max - 1] = end + '…'; }
+    return lines;
   };
-  return <section className="settings-card homescreen-card"><span className="feature-icon green"><Smartphone size={23} /></span><div><h2>Кампус под рукой</h2><p>Открывай расписание одним нажатием с главного экрана телефона.</p><button className="secondary-button" disabled={status === 'unsupported' || status === 'added' || status === 'loading'} onClick={add}>{status === 'added' ? <Check size={17} /> : <Smartphone size={17} />}{status === 'added' ? 'Ярлык уже добавлен' : status === 'loading' ? 'Проверяем поддержку…' : 'Добавить на главный экран'}</button>{status === 'unsupported' && <p className="editor-hint">В этой версии Telegram функция недоступна. Попробуй в обновлённом Telegram на телефоне: меню мини-приложения ⋮ → «Добавить на главный экран», если этот пункт есть.</p>}{message && <p role="status" className="editor-hint">{message}</p>}</div></section>;
+  const blocks = input.dates.map(date => {
+    const day = input.days[date];
+    if (!day || day.status === 'unavailable') throw new Error('Дождись загрузки всех выбранных дней.');
+    const lessons = day.lessons.filter(l => matchesSport(l, input.sport)).sort((a,b) => a.start.localeCompare(b.start)).map(lesson => {
+      const title = wrap(lesson.subject, 800, 30, 650, 4);
+      const meta = wrap(`${lesson.type}${lesson.cancelled ? ' · ОТМЕНЕНО' : ''} · ${lesson.online ? 'Онлайн' : 'Ауд.'} ${lesson.room || 'не указана'}`, 800, 22, 500, 3);
+      const teacher = wrap(lesson.teacher || 'Преподаватель не указан', 800, 20, 400, 2);
+      return { lesson, title, meta, teacher, height: 38 + title.length * 38 + meta.length * 29 + teacher.length * 27 };
+    });
+    const height = 54 + (lessons.length ? lessons.reduce((n,l) => n + l.height, 0) + (lessons.length - 1) * 12 : 60);
+    return { date, lessons, height };
+  });
+  const height = 128 + blocks.reduce((n,b) => n + b.height, 0) + Math.max(0, blocks.length - 1) * 32;
+  if (height > 16000) throw new Error('Слишком много текста для одной картинки. Выбери один день.');
+  canvas.height = height;
+  const text = (value: string, x: number, y: number, size: number, weight = 400, fill = palette.ink) => { font(size, weight); ctx.fillStyle = fill; ctx.fillText(value, x, y); };
+  const rect = (x: number,y: number,w: number,h: number,fill: string,radius = 20) => { ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(x,y,w,h,radius); ctx.fill(); };
+  ctx.fillStyle = palette.bg; ctx.fillRect(0,0,1200,height);
+  let y = 64;
+  for (const block of blocks) {
+    text(dateText(block.date,{weekday:'long',day:'numeric',month:'long',year:'numeric'}),64,y+28,29,700); y += 54;
+    if (!block.lessons.length) { rect(64,y,1072, 60,palette.surface); text('На эту дату занятия не опубликованы',88,y+38,23,400,palette.muted); y += 60; }
+    for (const [index, row] of block.lessons.entries()) {
+      rect(64,y,1072,row.height,palette.surface); rect(64,y+20,5,row.height-40,palette.accent,2);
+      text(row.lesson.start,88,y+47,31,700); text(row.lesson.end,88,y+79,23,450,palette.muted);
+      let lineY = y+42;
+      for (const line of row.title) { text(line,244,lineY,30,650); lineY += 38; }
+      for (const line of row.meta) { text(line,244,lineY,22,500,palette.accent); lineY += 29; }
+      for (const line of row.teacher) { text(line,244,lineY,20,400,palette.muted); lineY += 27; }
+      y += row.height + (index < block.lessons.length - 1 ? 12 : 0);
+    }
+    y += 32;
+  }
+  const blob = await new Promise<Blob>((resolve,reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Не удалось сохранить картинку.')), 'image/png'));
+  canvas.width = 0; canvas.height = 0; return blob;
 }
-export function SettingsPage() {
-  const [settings, setSettings] = useState<UserSettings>({ appearance: currentAppearance(), changeAlerts: true, morningEnabled: false, morningTime: '07:30', schoolDaysOnly: true });
-  const [loading, setLoading] = useState(true), [ready, setReady] = useState(false), [available, setAvailable] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [saved, setSaved] = useState(false), [revision, setRevision] = useState(0);
+
+export function ShareSchedule({ date, week, days, sport, view, onClose }: { date: string; week: string[]; days: Record<string, ScheduleDay>; sport: SportChoice; view: 'day'|'week'; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null), [range,setRange] = useState(view), [url,setUrl] = useState(''), [file,setFile] = useState<File | null>(null), [busy,setBusy] = useState(true), [error,setError] = useState(''), [message,setMessage] = useState('');
+  useEffect(() => { const d = ref.current; d?.showModal(); return () => d?.close(); }, []);
   useEffect(() => {
-    const controller = new AbortController(); setLoading(true); setError('');
-    void apiFetch('/api/settings', { signal: controller.signal }).then(async r => {
-      const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Не удалось загрузить настройки.');
-      if (!controller.signal.aborted) { setSettings(data.settings); setAvailable(data.remindersAvailable); setReady(true); }
-    }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [revision]);
-  const change = (values: Partial<UserSettings>) => { setSettings(s => ({ ...s, ...values })); setSaved(false); };
-  const save = async () => {
-    setBusy(true); setSaved(false); setError('');
-    try {
-      const r = await apiFetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
-      const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Не удалось сохранить настройки.');
-      setSettings(data.settings); setAppearance(data.settings.appearance); setAvailable(data.remindersAvailable); setSaved(true);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Нет связи. Попробуй ещё раз.'); }
-    finally { setBusy(false); }
+    let alive = true, objectUrl = ''; setBusy(true); setError(''); setFile(null); setUrl(''); setMessage('');
+    void scheduleImage({ dates: range === 'day' ? [date] : week, days, sport }).then(blob => {
+      if (!alive) return; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); setFile(new File([blob],`raspisanie-${date}-${range}.png`,{type:'image/png'}));
+    }).catch(e => { if (alive) setError(e.message || 'Не удалось создать картинку.'); }).finally(() => { if (alive) setBusy(false); });
+    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [date,week,days,sport,range]);
+  const hasCachedDays = (range === 'day' ? [date] : week).some(value => days[value] && days[value].status !== 'live');
+  const nativeShare = !!file && !!navigator.canShare?.({files:[file]});
+  const share = async () => {
+    if (!file) return;
+    try { await navigator.share({ files:[file] }); setMessage('Картинка передана в меню отправки.'); }
+    catch (e) { if (!(e instanceof DOMException && e.name === 'AbortError')) setError('Системная отправка недоступна. Сохрани картинку и прикрепи её в Telegram.'); }
   };
-  const modes: Array<[Appearance, string, typeof Sun]> = [['light', 'Светлая', Sun], ['dark', 'Тёмная', Moon], ['system', 'Как в Telegram', Monitor]];
-  return <div className="settings-page">
-    <form onSubmit={e => { e.preventDefault(); void save(); }}>
-      <section className="settings-card"><h2>Твой сезон, твой свет</h2><p>Осенью — тёплые оттенки, зимой — прохладные, весной и летом — свежие. Сезон меняется сам.</p><div className="appearance-options">{modes.map(([mode, title, Icon]) => <button type="button" key={mode} disabled={busy} className={settings.appearance === mode ? 'selected' : ''} aria-pressed={settings.appearance === mode} onClick={() => { change({ appearance: mode }); setAppearance(mode); }}><Icon size={21} /><strong>{title}</strong><span>{mode === 'light' ? 'Светлый фон' : mode === 'dark' ? 'Мягче вечером' : 'В браузере — как в системе'}</span></button>)}</div></section>
-      <section className="settings-card"><h2><BellRing size={20} />Уведомления</h2><div className="settings-schedule"><Clock3 size={19} /><div><strong>Проверка каждый день в 20:00</strong><span>Московское время · ближайшие 14 дней расписания</span></div></div>
-        {!available && ready && <p className="settings-info">Чтобы бот мог присылать сообщения, отправь ему /start или /notifications, затем обнови настройки. <a href={botLink} target="_blank" rel="noreferrer">Открыть бота <ArrowUpRight size={13} /></a><button type="button" className="text-button" onClick={() => setRevision(r => r + 1)}>Обновить</button></p>}
-        <label className="settings-toggle"><span><strong>Изменения в расписании</strong><small>Переносы, замены и отмены твоих пар. В сообщении будет ссылка на нужный день.</small></span><input type="checkbox" checked={settings.changeAlerts} disabled={!ready || busy} onChange={e => change({ changeAlerts: e.target.checked })} /></label>
-        <label className="settings-toggle"><span><strong><Sunrise size={17} />Утренняя сводка</strong><small>Первая и последняя пара, аудитория и задания на сегодня.</small></span><input type="checkbox" checked={settings.morningEnabled} disabled={!ready || busy} onChange={e => change({ morningEnabled: e.target.checked })} /></label>
-        {settings.morningEnabled && <div className="digest-options"><label>Когда присылать · МСК<input type="time" min="05:00" max="11:59" step="60" value={settings.morningTime} required disabled={!ready || busy} onChange={e => change({ morningTime: e.target.value })} /></label><label className="done-option"><input type="checkbox" checked={settings.schoolDaysOnly} disabled={!ready || busy} onChange={e => change({ schoolDaysOnly: e.target.checked })} />Только в дни с занятиями</label></div>}
-        <p className="editor-hint">Напоминания о ДЗ включаются в самом задании: за 3 дня, с 07:30 МСК. Команда /stop боту отключает все сообщения.</p>
-      </section>
-      {loading && <p className="settings-status" role="status"><LoaderCircle size={16} className="spinning" />Загружаем настройки…</p>}
-      {error && <p className="homework-error" role="alert">{error}{!ready && <button type="button" className="text-button" onClick={() => setRevision(r => r + 1)}><RefreshCw size={14} />Повторить</button>}</p>}
-      <div className="settings-save"><button className="primary-button" type="submit" disabled={!ready || loading || busy}>{busy ? <LoaderCircle size={17} className="spinning" /> : <Check size={17} />}{busy ? 'Сохраняем…' : 'Сохранить настройки'}</button><span role="status">{saved ? 'Настройки сохранены' : 'Тема видна сразу. Сохрани выбор для всех устройств.'}</span></div>
-    </form><HomeScreenButton />
-  </div>;
+  return <dialog ref={ref} className="share-dialog" aria-labelledby="share-title" onCancel={e => { e.preventDefault(); onClose(); }}><div className="dialog-top"><span>РАСПИСАНИЕ В КАРТИНКЕ</span><button className="icon-button" onClick={onClose} aria-label="Закрыть экспорт"><X size={21} /></button></div><h2 id="share-title">Поделиться расписанием</h2><p>Только даты и расписание занятий.</p>
+    <div className="share-options"><div className="view-toggle"><button aria-pressed={range==='day'} className={range==='day'?'selected':''} onClick={() => setRange('day')}>День</button><button aria-pressed={range==='week'} className={range==='week'?'selected':''} onClick={() => setRange('week')}>Неделя</button></div></div>
+    {busy ? <div className="share-loading" role="status"><LoaderCircle className="spinning" />Готовим картинку…</div> : url ? <div className="share-preview"><img src={url} alt="Предпросмотр расписания" /></div> : null}
+    {hasCachedDays && !busy && url && <p className="editor-hint">Часть расписания загружена из сохранённой копии.</p>}
+    {error && <p className="homework-error" role="alert">{error}</p>}<div className="share-actions">{nativeShare && <button className="primary-button" disabled={busy} onClick={() => void share()}><Share2 size={17} />Отправить</button>}{url && <a href={url} download={file?.name} className="secondary-button" onClick={() => setMessage('Если файл не сохранился, открой картинку и удерживай её для сохранения.')}><Download size={17} />Сохранить PNG</a>}{url && <a className="text-button" href={url} target="_blank" rel="noreferrer"><Image size={16} />Открыть картинку</a>}</div>
+    {message && <p role="status" className="editor-hint"><Check size={14} />{message}</p>}{!nativeShare && !busy && file && <p className="editor-hint">Сохрани PNG или удерживай картинку для сохранения, затем прикрепи её в чат Telegram.</p>}
+  </dialog>;
 }

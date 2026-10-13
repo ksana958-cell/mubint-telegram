@@ -1,206 +1,61 @@
-/* Four automatic palettes. Layout and the meaning of lesson/status colors stay stable. */
-:root,
-:root[data-season="autumn"] {
-  color-scheme: light;
-  --ink: #352b29;
-  --muted: #786b62;
-  --bg: #fbf7f2;
-  --surface: #fffefd;
-  --line: #eaded2;
-  --navy: #392a27;
-  --accent: #994c30;
-  --accent-strong: #773d29;
-  --accent-soft: #f7eadb;
-  --accent-tint: #fcf4ea;
-  --accent-border: #d9b899;
-  --mint: #f2ddc4;
-  --green: #994c30;
-  --banner-start: #f2d9b9;
-  --banner-end: #fbedda;
-  --ornament: #b57631;
-  --nav-hover: #513b33;
-  --nav-active: #654637;
-  --nav-accent: #f4ce9a;
-  --nav-text: #ead8cb;
-  --nav-muted: #c8b0a0;
-  --nav-line: #674b40;
+import { useEffect, useState } from 'react';
+import { BellRing, Check, Clock3, LoaderCircle, Moon, Smartphone, Sun, Sunrise, RefreshCw, ArrowUpRight, Monitor } from 'lucide-react';
+import { apiFetch, botLink, telegram } from './telegram';
+import { currentAppearance, setAppearance } from './season';
+import type { Appearance, UserSettings } from '@/lib/student';
+
+function HomeScreenButton() {
+  const [status, setStatus] = useState('loading'), [message, setMessage] = useState('');
+  useEffect(() => {
+    const tg = telegram(); let alive = true;
+    if (!tg?.initData || !tg.isVersionAtLeast?.('8.0') || !tg.addToHomeScreen || !tg.checkHomeScreenStatus) { setStatus('unsupported'); return; }
+    const added = () => { if (alive) { setStatus('added'); setMessage('Кампус добавлен на главный экран.'); } };
+    try { tg.checkHomeScreenStatus(value => { if (alive) setStatus(value); }); tg.onEvent?.('homeScreenAdded', added); }
+    catch { setStatus('unsupported'); }
+    const timer = setTimeout(() => { if (alive) setStatus(s => s === 'loading' ? 'unknown' : s); }, 2500);
+    return () => { alive = false; clearTimeout(timer); tg.offEvent?.('homeScreenAdded', added); };
+  }, []);
+  const add = () => {
+    try { telegram()?.addToHomeScreen?.(); setMessage('Подтверди добавление в окне Telegram. Если окно не появилось, проверь меню приложения ⋮.'); }
+    catch { setMessage('Не удалось открыть добавление. Попробуй через меню приложения ⋮.'); }
+  };
+  return <section className="settings-card homescreen-card"><span className="feature-icon green"><Smartphone size={23} /></span><div><h2>Кампус под рукой</h2><p>Открывай расписание одним нажатием с главного экрана телефона.</p><button className="secondary-button" disabled={status === 'unsupported' || status === 'added' || status === 'loading'} onClick={add}>{status === 'added' ? <Check size={17} /> : <Smartphone size={17} />}{status === 'added' ? 'Ярлык уже добавлен' : status === 'loading' ? 'Проверяем поддержку…' : 'Добавить на главный экран'}</button>{status === 'unsupported' && <p className="editor-hint">В этой версии Telegram функция недоступна. Попробуй в обновлённом Telegram на телефоне: меню мини-приложения ⋮ → «Добавить на главный экран», если этот пункт есть.</p>}{message && <p role="status" className="editor-hint">{message}</p>}</div></section>;
 }
-
-:root[data-season="winter"] {
-  --ink: #24354b;
-  --muted: #5d6f82;
-  --bg: #f3f7fc;
-  --surface: #ffffff;
-  --line: #dde6f0;
-  --navy: #20324e;
-  --accent: #3963a5;
-  --accent-strong: #2d518e;
-  --accent-soft: #e8effb;
-  --accent-tint: #f2f6fe;
-  --accent-border: #b0c4e5;
-  --mint: #d7e5fa;
-  --green: #3963a5;
-  --banner-start: #d7e7fb;
-  --banner-end: #eef1ff;
-  --ornament: #6578b3;
-  --nav-hover: #2c4160;
-  --nav-active: #354f77;
-  --nav-accent: #c8defd;
-  --nav-text: #e0e9fa;
-  --nav-muted: #b2c4e0;
-  --nav-line: #475e7e;
-}
-
-:root[data-season="spring"] {
-  --ink: #2b3d34;
-  --muted: #5f735f;
-  --bg: #f6f9f3;
-  --surface: #ffffff;
-  --line: #e0e9db;
-  --navy: #263d32;
-  --accent: #49764d;
-  --accent-strong: #345d3c;
-  --accent-soft: #eaf3e3;
-  --accent-tint: #f3f8ee;
-  --accent-border: #b0c7a4;
-  --mint: #dcebcf;
-  --green: #49764d;
-  --banner-start: #ddebcf;
-  --banner-end: #f3eee7;
-  --ornament: #a5768a;
-  --nav-hover: #344f3e;
-  --nav-active: #425f46;
-  --nav-accent: #d5e9bc;
-  --nav-text: #e0ecd7;
-  --nav-muted: #b6c8b1;
-  --nav-line: #4b6752;
-}
-
-:root[data-season="summer"] {
-  --ink: #283b3b;
-  --muted: #5e7371;
-  --bg: #f7faf6;
-  --surface: #fffefa;
-  --line: #dde9e0;
-  --navy: #203c3d;
-  --accent: #23756f;
-  --accent-strong: #1d5d59;
-  --accent-soft: #e3f3e9;
-  --accent-tint: #f0f8f2;
-  --accent-border: #a4cabe;
-  --mint: #ccebe0;
-  --green: #23756f;
-  --banner-start: #d2eee1;
-  --banner-end: #fff0c8;
-  --ornament: #a17a28;
-  --nav-hover: #2b4e4b;
-  --nav-active: #32625a;
-  --nav-accent: #f4dda0;
-  --nav-text: #e0ece0;
-  --nav-muted: #b7ccc2;
-  --nav-line: #486d65;
-}
-
-/* Navigation, selection and decoration follow one palette everywhere. */
-:root[data-season] body { background: var(--bg); color: var(--ink); }
-:root[data-season] ::selection { background: var(--mint); color: var(--accent-strong); }
-:root[data-season] :is(button, a, input, textarea):focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-:root[data-season] .sidebar { color: var(--nav-text); }
-:root[data-season] :is(.brand-dot, .nav-item.active svg, .tiny-orbit) { color: var(--nav-accent); }
-:root[data-season] .brand-mark i { background: var(--nav-accent); }
-:root[data-season] .brand-mark i:nth-child(2) { background: var(--ornament); }
-:root[data-season] .brand-mark i:nth-child(3) { background: var(--accent-border); }
-:root[data-season] :is(.academy, .sidebar-group, .sidebar-bottom>a) { border-color: var(--nav-line); }
-:root[data-season] :is(.academy-symbol, .academy div>span, .nav-label, .sidebar-group small, .sidebar-group>svg, .sidebar-note strong, .sidebar-footer) { color: var(--nav-muted); }
-:root[data-season] :is(.nav-item, .sidebar-note, .sidebar-bottom>a) { color: var(--nav-text); }
-:root[data-season] .nav-item:hover { background: var(--nav-hover); }
-:root[data-season] .nav-item.active { background: var(--nav-active); color: #fff; }
-:root[data-season] .nav-item i { background: var(--nav-accent); }
-:root[data-season] :is(.group-avatar, .nav-count) { background: var(--nav-active); color: var(--nav-accent); }
-:root[data-season] :is(.primary-button:hover, .save-homework:hover) { background: var(--nav-hover); }
-:root[data-season] .primary-button:disabled { background: var(--line); color: var(--muted); }
-
-:root[data-season] :is(.topbar, .mobile-bottom-nav) { background: var(--surface); border-color: var(--line); }
-:root[data-season] :is(.group-panel, .feature-row>div, .group-switch, .week-rail, .month-calendar, .week-summary, .source-top, .group-option, .sport-step-options>button, .homework-editor, .task-card, .task-filter button, .empty-state, .lesson-card) { background: var(--surface); border-color: var(--line); }
-:root[data-season] .lesson-card.is-past:not(.is-cancelled) { background: var(--bg); }
-:root[data-season] :is(.top-breadcrumb strong, .moscow-time, .telegram-loading, .task-content) { color: var(--ink); }
-:root[data-season] :is(.top-breadcrumb, .moscow-time>span, .page-eyebrow, .onboarding-heading p, .dashboard-heading p, .panel-heading p, .group-option small, .group-panel-footer>p, .bottom-note, .feature-row p, .group-switch small, .list-heading, .group-empty p, .empty-state p, .schedule-footer, .app-footer, .lesson-time>span, .lesson-time>small, .lesson-meta>span, .lesson-meta .lesson-room, .day-section-title>span, .day-section-title h3>span, .summary-types>div, .week-count>span:nth-child(2)) { color: var(--muted); }
-:root[data-season] :is(.search-field, .homework-editor textarea, .task-empty, .lesson-dialog) { background: var(--bg); border-color: var(--line); }
-:root[data-season] :is(.search-field input::placeholder, .homework-editor textarea::placeholder) { color: var(--muted); }
-:root[data-season] :is(.search-field:focus-within, .group-switch:hover, .lesson-card:hover) { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
-:root[data-season] .group-list { scrollbar-color: var(--accent-border) transparent; }
-:root[data-season] :is(.group-option:hover, .group-option.selected, .sport-step-options>button.selected) { background: var(--accent-tint); border-color: var(--accent-border); }
-:root[data-season] :is(.group-option.selected .radio-dot, .sport-step-options .selected .radio-dot, .task-check.checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
-:root[data-season] :is(.profile-button, .feature-icon.green, .step-badge, .group-option.selected .group-option-icon, .sport-step-icon, .selected .sport-step-icon, .summary-icon, .empty-state>span, .recent-groups button, .semester-pill, .open-mini-calendar, .calendar-collapse) { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
-:root[data-season] :is(.heading-dot, .onboarding h1>span, .text-button, .load-more, .setup-progress .current, .setup-progress .complete, .group-switch>svg, .sport-step-note, .sport-step-options small) { color: var(--accent); }
-:root[data-season] :is(.text-button:hover, .load-more:hover, .lesson-open:hover .lesson-content h4) { color: var(--accent-strong); }
-:root[data-season] :is(.page-eyebrow>span, .semester-pill>span) { background: var(--accent); }
-:root[data-season] .setup-progress i { background: var(--line); }
-
-/* Season-tinted panels and the existing calendar illustration. */
-:root[data-season] :is(.welcome-card, .day-banner, .homework-board-intro) { background: linear-gradient(115deg, var(--banner-start), var(--banner-end)); border-color: var(--accent-border); }
-:root[data-season] :is(.welcome-card h2, .day-banner h2, .homework-board-intro h2, .tasks-remaining) { color: var(--accent-strong); }
-:root[data-season] :is(.welcome-card>p, .welcome-foot, .day-banner p, .banner-details, .homework-board-intro p, .tasks-remaining small, .banner-eyebrow) { color: var(--accent-strong); }
-:root[data-season] :is(.welcome-tag, .round-arrow) { color: var(--accent-strong); border-color: var(--accent-border); background: var(--accent-soft); }
-:root[data-season] .banner-type { background: var(--accent-soft); color: var(--accent-strong); }
-:root[data-season] .banner-eyebrow>span { background: var(--accent); }
-:root[data-season] :is(.day-banner h2>span, .art-star) { color: var(--ornament); }
-:root[data-season] .calendar-paper { border-color: var(--accent-border); }
-:root[data-season] .calendar-paper.back { background: var(--accent); border-color: var(--accent); }
-:root[data-season] .calendar-paper.front { background: var(--surface); }
-:root[data-season] .paper-rings i { background: var(--accent-strong); }
-:root[data-season] .paper-label { color: var(--accent); border-color: var(--line); }
-:root[data-season] .paper-grid>i { background: var(--accent-soft); }
-:root[data-season] .paper-grid>.marked { background: var(--accent); }
-:root[data-season] .paper-grid>.minted { background: var(--mint); }
-:root[data-season] .orbit { border-color: var(--accent-border); opacity: .6; }
-:root[data-season] .art-sticker { background: var(--surface); border-color: var(--line); }
-
-/* The chosen day and month calendar use the same accent. */
-:root[data-season] :is(.week-rail-day, .month-weekday.weekend) { color: var(--accent-strong); }
-:root[data-season] :is(.week-rail-day>span, .month-eyebrow, .month-calendar-heading h2>span, .month-weekday, .month-calendar-legend, .month-calendar-legend small) { color: var(--muted); }
-:root[data-season] :is(.week-rail-arrow, .icon-button) { color: var(--muted); }
-:root[data-season] :is(.week-rail-day:hover, .week-rail-arrow:hover, .icon-button:hover, .today-button:hover, .month-day:hover, .month-day.weekend) { background: var(--accent-tint); }
-:root[data-season] .compact-calendar .month-day.in-week:not(.selected) { background: var(--accent-tint); }
-:root[data-season] .week-rail-day.selected { background: var(--mint); color: var(--accent-strong); }
-:root[data-season] :is(.week-rail-day.selected>span, .week-rail-day.current>span) { color: var(--accent-strong); }
-:root[data-season] :is(.week-rail-day>i.has-lessons, .week-rail-day.selected>strong:after, .week-rail-day.current:after, .month-day.current:before, .month-class-dots>i) { background: var(--accent); }
-:root[data-season] .month-day { background: var(--surface); color: var(--ink); }
-:root[data-season] .month-day.current { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-strong); }
-:root[data-season] :is(.month-day.selected, .compact-calendar .month-day.selected) { background: var(--accent); border-color: var(--accent); color: #fff; }
-:root[data-season] :is(.month-day.selected.current:before, .month-day.selected .month-class-dots>i) { background: #fff; }
-:root[data-season] .selected-key { background: var(--accent); }
-:root[data-season] .today-key { border-color: var(--accent); }
-:root[data-season] .weekend-key { background: var(--accent-soft); }
-:root[data-season] :is(.month-calendar-legend, .app-footer, .task-card-footer, .monitor-details) { border-color: var(--line); }
-:root[data-season] :is(.view-toggle, .type-filters button.active) { background: var(--accent-soft); border-color: var(--line); color: var(--accent-strong); }
-:root[data-season] .view-toggle .selected { color: var(--accent-strong); background: var(--surface); }
-:root[data-season] :is(.today-button, .view-toggle button, .type-filters button) { color: var(--muted); }
-:root[data-season] .day-section-title em { background: var(--accent-soft); color: var(--accent-strong); }
-:root[data-season] .lesson-card.is-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-
-/* Personal tasks, dialog and mobile navigation. Status colors remain semantic. */
-:root[data-season] :is(.source-card, .monitor-panel, .homework-access, .assignment-target, .incoming-homework) { background: var(--accent-tint); border-color: var(--line); }
-:root[data-season] :is(.source-card h3, .source-card a, .source-card-icon, .monitor-panel strong, .monitor-symbol, .editor-heading label, .assignment-target strong, .incoming-homework h3, .incoming-homework p) { color: var(--accent-strong); }
-:root[data-season] :is(.source-card p, .monitor-panel small, .monitor-details, .monitor-panel>summary>svg, .change-date, .change-item p, .history-empty p, .dialog-top, .dialog-meta, .homework-access, .assignment-target span, .assignment-target p, .incoming-homework p>small, .reminder-option small, .manual-deadline, .editor-hint, .assignment-done) { color: var(--muted); }
-:root[data-season] :is(.source-card a, .source-card-icon>span, .change-item, .reminder-option) { border-color: var(--line); }
-:root[data-season] :is(.monitor-symbol, .dialog-top .icon-button, .task-deadline:not(.overdue), .secondary-button) { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
-:root[data-season] :is(.assignment-target, .reminder-option, .reminder-option>svg, .history-empty, .task-card-footer button, .task-check:not(.checked)) { color: var(--accent); }
-:root[data-season] :is(.manual-deadline input, .task-check) { border-color: var(--accent-border); }
-:root[data-season] .manual-deadline input { color: var(--accent-strong); background: var(--surface); }
-:root[data-season] :is(.reminder-option input, .assignment-done input) { accent-color: var(--accent); }
-:root[data-season] .task-filter button.active { background: var(--navy); color: #fff; border-color: var(--navy); }
-:root[data-season] .task-filter button.active>span { background: var(--nav-active); color: var(--nav-accent); }
-:root[data-season] .mobile-bottom-nav>button { color: var(--muted); }
-:root[data-season] .mobile-bottom-nav>button.active { background: var(--accent-soft); color: var(--accent-strong); }
-:root[data-season] .mobile-nav-icon>i { background: var(--accent); border-color: var(--surface); }
-
-.season-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--accent-border); border-radius: 30px; background: var(--accent-soft); color: var(--accent-strong); font-size: 10px; font-weight: 550; white-space: nowrap; }
-@media (max-width: 700px) {
-  .season-badge { padding: 7px; width: 30px; height: 30px; }
-  .season-badge>span { display: none; }
-  .top-actions { gap: 8px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  :root[data-season] *, :root[data-season] *::before, :root[data-season] *::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
+export function SettingsPage() {
+  const [settings, setSettings] = useState<UserSettings>({ appearance: currentAppearance(), changeAlerts: true, morningEnabled: false, morningTime: '07:30', schoolDaysOnly: true });
+  const [loading, setLoading] = useState(true), [ready, setReady] = useState(false), [available, setAvailable] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [saved, setSaved] = useState(false), [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController(); setLoading(true); setError('');
+    void apiFetch('/api/settings', { signal: controller.signal }).then(async r => {
+      const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Не удалось загрузить настройки.');
+      if (!controller.signal.aborted) { setSettings(data.settings); setAvailable(data.remindersAvailable); setReady(true); }
+    }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [revision]);
+  const change = (values: Partial<UserSettings>) => { setSettings(s => ({ ...s, ...values })); setSaved(false); };
+  const save = async () => {
+    setBusy(true); setSaved(false); setError('');
+    try {
+      const r = await apiFetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
+      const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Не удалось сохранить настройки.');
+      setSettings(data.settings); setAppearance(data.settings.appearance); setAvailable(data.remindersAvailable); setSaved(true);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Нет связи. Попробуй ещё раз.'); }
+    finally { setBusy(false); }
+  };
+  const modes: Array<[Appearance, string, typeof Sun]> = [['light', 'Светлая', Sun], ['dark', 'Тёмная', Moon], ['system', 'Как в Telegram', Monitor]];
+  return <div className="settings-page">
+    <form onSubmit={e => { e.preventDefault(); void save(); }}>
+      <section className="settings-card"><h2>Твой сезон, твой свет</h2><p>Осенью — тёплые оттенки, зимой — прохладные, весной и летом — свежие. Сезон меняется сам.</p><div className="appearance-options">{modes.map(([mode, title, Icon]) => <button type="button" key={mode} disabled={busy} className={settings.appearance === mode ? 'selected' : ''} aria-pressed={settings.appearance === mode} onClick={() => { change({ appearance: mode }); setAppearance(mode); }}><Icon size={21} /><strong>{title}</strong><span>{mode === 'light' ? 'Светлый фон' : mode === 'dark' ? 'Мягче вечером' : 'В браузере — как в системе'}</span></button>)}</div></section>
+      <section className="settings-card"><h2><BellRing size={20} />Уведомления</h2><div className="settings-schedule"><Clock3 size={19} /><div><strong>Проверка каждый день в 20:00</strong><span>Московское время · ближайшие 14 дней расписания</span></div></div>
+        {!available && ready && <p className="settings-info">Чтобы бот мог присылать сообщения, отправь ему /start или /notifications, затем обнови настройки. <a href={botLink} target="_blank" rel="noreferrer">Открыть бота <ArrowUpRight size={13} /></a><button type="button" className="text-button" onClick={() => setRevision(r => r + 1)}>Обновить</button></p>}
+        <label className="settings-toggle"><span><strong>Изменения в расписании</strong><small>Переносы, замены и отмены твоих пар. В сообщении будет ссылка на нужный день.</small></span><input type="checkbox" checked={settings.changeAlerts} disabled={!ready || busy} onChange={e => change({ changeAlerts: e.target.checked })} /></label>
+        <label className="settings-toggle"><span><strong><Sunrise size={17} />Утренняя сводка</strong><small>Первая и последняя пара, аудитория и задания на сегодня.</small></span><input type="checkbox" checked={settings.morningEnabled} disabled={!ready || busy} onChange={e => change({ morningEnabled: e.target.checked })} /></label>
+        {settings.morningEnabled && <div className="digest-options"><label>Когда присылать · МСК<input type="time" min="05:00" max="11:59" step="60" value={settings.morningTime} required disabled={!ready || busy} onChange={e => change({ morningTime: e.target.value })} /></label><label className="done-option"><input type="checkbox" checked={settings.schoolDaysOnly} disabled={!ready || busy} onChange={e => change({ schoolDaysOnly: e.target.checked })} />Только в дни с занятиями</label></div>}
+        <p className="editor-hint">Напоминания о ДЗ включаются в самом задании: за 3 дня, с 07:30 МСК. Команда /stop боту отключает все сообщения.</p>
+      </section>
+      {loading && <p className="settings-status" role="status"><LoaderCircle size={16} className="spinning" />Загружаем настройки…</p>}
+      {error && <p className="homework-error" role="alert">{error}{!ready && <button type="button" className="text-button" onClick={() => setRevision(r => r + 1)}><RefreshCw size={14} />Повторить</button>}</p>}
+      <div className="settings-save"><button className="primary-button" type="submit" disabled={!ready || loading || busy}>{busy ? <LoaderCircle size={17} className="spinning" /> : <Check size={17} />}{busy ? 'Сохраняем…' : 'Сохранить настройки'}</button><span role="status">{saved ? 'Настройки сохранены' : 'Тема видна сразу. Сохрани выбор для всех устройств.'}</span></div>
+    </form><HomeScreenButton />
+  </div>;
 }
